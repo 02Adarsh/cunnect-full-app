@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "72550803453",
+    "project_id": "cunnect-8aa16",
+    "storage_bucket": "cunnect-8aa16.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:72550803453:android:659cdb4cee4af4253f5b94",
+        "android_client_info": {
+          "package_name": "com.cunnect.cunnect_food"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD_MXQBDFiWnXzs7i4LnFo31gMwsTkQrvU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

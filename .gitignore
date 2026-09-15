@@ -1,0 +1,8 @@
+build/
+.dart_tool/
+.idea/
+*.iml
+.flutter-plugins*
+backend/myproject/media/
+backend/myproject/db.sqlite3
+.env

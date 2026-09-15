@@ -1,0 +1,9 @@
+Django==5.2.2
+djangorestframework
+channels
+daphne
+requests
+beautifulsoup4
+pypdf
+pillow
+python-dotenv

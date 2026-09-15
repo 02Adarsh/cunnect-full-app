@@ -1,0 +1,48 @@
+name: cunnect_food
+description: "CUnnect Food - Flutter port of the Django food ordering app (Customer, Vendor & Delivery panels)."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  file_picker: ^8.0.0
+  provider: ^6.1.2
+  cupertino_icons: ^1.0.8
+  video_player: ^2.9.1
+  shared_preferences: ^2.2.2
+  cached_network_image: ^3.3.1
+  path_provider: ^2.1.4
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.6
+  flutter_local_notifications: ^17.2.4
+  url_launcher: ^6.2.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/logo.png
+    - assets/food_images/
+    - assets/hero_slides/
+    - assets/banners/
+
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Regular.ttf
+        - asset: assets/fonts/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Poppins-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Poppins-ExtraBold.ttf
+          weight: 800
