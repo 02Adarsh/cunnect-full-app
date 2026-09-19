@@ -1,4 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -17,11 +19,11 @@ import 'vendor/vendor_shell.dart';
 
 BuildContext? get rootNavKeyForUpdate => rootNavKey.currentContext;
 
-/// ⭐ App ka internal version — naya APK banate waqt badhao +
-/// backend deploy/app_version.json me bhi same number + APK link daalo.
-const int kAppVersion = 39;
+/// ⭐ Internal app version — bump it when building a new APK +
+/// also put the same number + APK link in backend deploy/app_version.json.
+const int kAppVersion = 73;
 
-/// ⭐ Har app-open pe animated CUnnect splash — phir session ke hisaab se route.
+/// ⭐ Animated CUnnect splash on every app open — then route by session.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -55,7 +57,7 @@ class _SplashScreenState extends State<SplashScreen>
     });
   }
 
-  /// ⭐ Splash ke dauran hi banner/hero images disk-cache me garam karo.
+  /// ⭐ Warm the banner/hero images into the disk cache during the splash.
   void _prefetchMedia() {
     if (_prefetched) return;
     _prefetched = true;
@@ -71,28 +73,45 @@ class _SplashScreenState extends State<SplashScreen>
     }
   }
 
-  /// ⭐ Server se latest version check — naya APK hai to update dialog.
+  /// ⭐ Check the latest version on the server — show the update dialog if
+  /// a newer APK exists. The first try can time out on a Render cold start,
+  /// so it checks again in the background after the splash (late dialog).
+  /// ⭐ v63: Android-only — iOS cannot install APKs (App Store/TestFlight
+  /// handles iOS updates), so the dialog is skipped there.
   Future<void> _checkUpdate() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    final found = await _fetchUpdate(const Duration(seconds: 6));
+    if (!found) {
+      // ⭐ retry in the background — the dialog still appears once the server wakes up
+      Future.delayed(const Duration(seconds: 8), () async {
+        if (_updateUrl != null) return;
+        final ok = await _fetchUpdate(const Duration(seconds: 25));
+        // the splash may be disposed by now — the dialog opens on the root navigator
+        if (ok) _showUpdateDialog();
+      });
+    }
+  }
+
+  Future<bool> _fetchUpdate(Duration timeout) async {
     try {
       final api = ApiClient();
-      final data = api
-          .dataOf(await api
-              .get('/api/app/version/')
-              .timeout(const Duration(seconds: 4)));
+      final data = api.dataOf(
+          await api.get('/api/app/version/').timeout(timeout));
       final ver = (data['version'] ?? 0) is int
           ? (data['version'] as int)
           : int.tryParse('${data['version']}') ?? 0;
       final url = (data['url'] ?? '').toString();
       if (ver > kAppVersion && url.isNotEmpty) {
-        // ⭐ Later dabaya tha to wahi version dobara mat dikhao
-        final skipped =
-            int.tryParse(LocalStore.get('skip_update_ver') ?? '') ?? 0;
-        if (ver > skipped) {
-          _updateUrl = url;
-          _updateVer = ver;
-        }
+        // ⭐ v73: "Later" no longer silences the update — the dialog
+        // comes back every single time the app is opened until the
+        // user actually updates.
+        LocalStore.remove('skip_update_ver');
+        _updateUrl = url;
+        _updateVer = ver;
+        return true;
       }
     } catch (_) {}
+    return false;
   }
 
   @override
@@ -106,7 +125,7 @@ class _SplashScreenState extends State<SplashScreen>
     final store = context.read<AppStore>();
     final Widget next;
     if (store.studentLoggedIn) {
-      next = const StudentDashboardScreen(); // ⭐ login tha -> seedha dashboard
+      next = const StudentDashboardScreen(); // ⭐ already logged in -> dashboard
     } else if (ApiConfig.vendorToken != null) {
       next = const VendorShell(); // ⭐ vendor logged-in -> vendor dashboard
     } else {
@@ -115,54 +134,7 @@ class _SplashScreenState extends State<SplashScreen>
     Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => next));
     if (_updateUrl != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final ctx = rootNavKeyForUpdate;
-        if (ctx == null) return;
-        showDialog(
-          context: ctx,
-          builder: (_) => AlertDialog(
-            backgroundColor: const Color(0xFF161616),
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16)),
-            title: const Text('Update available 🎉',
-                style: TextStyle(color: Colors.white, fontSize: 16)),
-            content: const Text(
-                'A new version of CUnnect is available. '
-                'Update now for the best experience.',
-                style: TextStyle(color: Color(0xFFB5B5B5), fontSize: 12.5)),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  LocalStore.set('skip_update_ver', '$_updateVer');
-                  Navigator.of(ctx).pop();
-                },
-                child: const Text('Later',
-                    style: TextStyle(color: Color(0xFF9A9A9A))),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFF10B1D)),
-                onPressed: () async {
-                  Navigator.of(ctx).pop();
-                  final ok = await downloadApk(_updateUrl!);
-                  if (!ok) await openExternalUrl(_updateUrl!);
-                  final c = rootNavKeyForUpdate;
-                  if (c != null) {
-                    showCunnectToast(
-                        c,
-                        ok
-                            ? 'Download started — install from the notification'
-                            : 'Opening download in browser');
-                  }
-                },
-                child: const Text('UPDATE',
-                    style: TextStyle(
-                        fontWeight: FontWeight.w800, color: Colors.white)),
-              ),
-            ],
-          ),
-        );
-      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _showUpdateDialog());
     }
     if (_updateUrl == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -170,6 +142,57 @@ class _SplashScreenState extends State<SplashScreen>
         if (ctx != null) promptAutostartOnce(ctx);
       });
     }
+  }
+
+  /// ⭐ Update dialog — same dialog from the splash and the late retry.
+  void _showUpdateDialog() {
+    final ctx = rootNavKeyForUpdate;
+    if (ctx == null || _updateUrl == null) return;
+    showDialog(
+      context: ctx,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF161616),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
+        title: const Text('Update available 🎉',
+            style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: const Text(
+            'A new version of CUnnect is available. '
+            'Update now for the best experience.',
+            style: TextStyle(color: Color(0xFFB5B5B5), fontSize: 12.5)),
+        actions: [
+          TextButton(
+            onPressed: () {
+              // ⭐ v73: "Later" only closes the dialog — it will be
+              // shown again the next time the app is opened.
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Later',
+                style: TextStyle(color: Color(0xFF9A9A9A))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF10B1D)),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final ok = await downloadApk(_updateUrl!);
+              if (!ok) await openExternalUrl(_updateUrl!);
+              final c = rootNavKeyForUpdate;
+              if (c != null) {
+                showCunnectToast(
+                    c,
+                    ok
+                        ? 'Download started — install from the notification'
+                        : 'Opening download in browser');
+              }
+            },
+            child: const Text('UPDATE',
+                style: TextStyle(
+                    fontWeight: FontWeight.w800, color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

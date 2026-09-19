@@ -6,29 +6,40 @@ import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
 
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key});
+  /// ⭐ if opened from the vendor portal, show vendor notifications only
+  final bool forVendor;
+
+  const NotificationsScreen({super.key, this.forVendor = false});
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
+  int get _userId =>
+      widget.forVendor ? AppStore.vendorUserId : AppStore.customerUserId;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AppStore>().loadNotifications();
+      final store = context.read<AppStore>();
+      if (widget.forVendor) {
+        store.loadVendorNotifications();
+      } else {
+        store.loadNotifications();
+      }
     });
     // Same as the Django view: opening the page marks everything read.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AppStore>().markAllRead(AppStore.customerUserId);
+      context.read<AppStore>().markAllRead(_userId);
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final items = store.notificationsFor(AppStore.customerUserId);
+    final items = store.notificationsFor(_userId);
 
     return Scaffold(
       backgroundColor: AppColors.page,
@@ -44,29 +55,35 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             decoration: const BoxDecoration(
               border: Border(bottom: BorderSide(color: AppColors.line)),
             ),
-            child: const Column(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Notifications',
+                const Text('Notifications',
                     style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
-                SizedBox(height: 4),
-                Text('Order updates from your food partners.',
-                    style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                const SizedBox(height: 4),
+                Text(
+                    widget.forVendor
+                        ? 'New orders and updates for your kitchen.'
+                        : 'Order updates from your food partners.',
+                    style: const TextStyle(color: AppColors.muted, fontSize: 12)),
               ],
             ),
           ),
           Expanded(
             child: items.isEmpty
-                ? const Center(
+                ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text('No notifications yet',
+                        const Text('No notifications yet',
                             style: TextStyle(
                                 color: Color(0xFFEEEEEE), fontSize: 17, fontWeight: FontWeight.w700)),
-                        SizedBox(height: 8),
-                        Text('Partner order updates will show here.',
-                            style: TextStyle(color: AppColors.muted, fontSize: 13)),
+                        const SizedBox(height: 8),
+                        Text(
+                            widget.forVendor
+                                ? 'New order alerts will show here.'
+                                : 'Partner order updates will show here.',
+                            style: const TextStyle(color: AppColors.muted, fontSize: 13)),
                       ],
                     ),
                   )

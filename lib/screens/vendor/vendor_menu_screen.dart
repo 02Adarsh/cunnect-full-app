@@ -18,7 +18,7 @@ class VendorMenuScreen extends StatelessWidget {
     final store = context.watch<AppStore>();
     final items = store.menuItems;
 
-    return Column(
+    final body = Column(
       children: [
         if (!inShell)
           Padding(
@@ -86,6 +86,12 @@ class VendorMenuScreen extends StatelessWidget {
         ),
       ],
     );
+    // Standalone pushes need their own Scaffold (yellow-underline fix).
+    if (inShell) return body;
+    return Scaffold(
+      backgroundColor: AppColors.page,
+      body: SafeArea(bottom: false, child: body),
+    );
   }
 }
 
@@ -115,9 +121,9 @@ class _MenuItemRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(item.stock > 0 ? '${item.name}  ·  Stock ${item.stock}' : item.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                DishNameWithMark(
+                    name: item.stock > 0 ? '${item.name}  ·  Stock ${item.stock}' : item.name,
+                    isVeg: item.isVeg,
                     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 3),
                 Text('₹${item.price.round()}',
@@ -188,7 +194,13 @@ class _MenuItemRow extends StatelessWidget {
                       ],
                     ),
                   );
-                  if (yes == true) store.deleteMenuItem(item.id);
+                  if (yes == true) {
+                    final err = await store.deleteMenuItem(item.id);
+                    if (context.mounted && err != null) {
+                      showCunnectToast(context,
+                          'Could not delete — $err', error: true);
+                    }
+                  }
                 },
                 child: const Text('Delete',
                     style: TextStyle(

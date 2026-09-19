@@ -1,7 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// ⭐ APK/mobile persistent storage — shared_preferences cache ke saath
-/// sync get/set (AppStore sync API rehta hai).
+/// sync get/set (the AppStore API stays synchronous).
 SharedPreferences? _prefs;
 
 Future<void> init() async {

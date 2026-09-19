@@ -7,18 +7,68 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'api_client.dart';
+import 'local_store.dart';
 
 /// ⭐ root navigator key
 final GlobalKey<NavigatorState> rootNavKey = GlobalKey<NavigatorState>();
 
-const kChannelUser = 'cunnect_ping_v3';
-const kChannelVendor = 'cunnect_alert_v3';
+// ⭐ v5: the shrinker was stripping sound files from the APK (fixed via keep.xml) —
+// but the v4 channels were created on phones WITHOUT sound, hence a new id.
+const kChannelUser = 'cunnect_ping_v5';
+const kChannelVendor = 'cunnect_alert_v5';
 
 final FlutterLocalNotificationsPlugin _local =
     FlutterLocalNotificationsPlugin();
 
-/// ⭐ Zomato-style heads-up + sound + CU icon — screen on/off dono pe
+/// ⭐ v53: DEEP-LINK NAV — tapping any notification opens the matching
+/// section of the app (orders / vendor / ums / feed / notifications),
+/// whether the app was in the foreground, background or fully closed.
+/// The route arrives in FCM `data['route']`; local notifications carry
+/// it in their payload.
+String? pendingNotifRoute;
+
+typedef NotifRouteHandler = void Function(String route);
+
+/// The dashboard registers the real navigator here once it is mounted.
+NotifRouteHandler? _routeHandler;
+
+void setNotifRouteHandler(NotifRouteHandler? handler) {
+  _routeHandler = handler;
+  // A tap that happened before the UI was ready (cold start) fires now.
+  if (handler != null && pendingNotifRoute != null) {
+    final r = pendingNotifRoute!;
+    pendingNotifRoute = null;
+    handler(r);
+  }
+}
+
+void dispatchNotifRoute(String? route) {
+  final r = (route ?? '').trim();
+  if (r.isEmpty) return;
+  final h = _routeHandler;
+  if (h != null) {
+    h(r);
+  } else {
+    pendingNotifRoute = r; // consumed when the dashboard mounts
+  }
+}
+
+/// ⭐ v73: remember a BROADCAST so the home page can show it as a card
+/// the moment the notification is tapped (or the app is opened from it).
+void rememberBroadcast(Map<String, dynamic> data) {
+  final route = '${data['route'] ?? ''}';
+  if (route != 'broadcast') return;
+  final title = '${data['title'] ?? 'CUnnect'}';
+  final body = '${data['body'] ?? ''}';
+  if (title.trim().isEmpty && body.trim().isEmpty) return;
+  LocalStore.set('bc_title', title);
+  LocalStore.set('bc_body', body);
+  LocalStore.set('bc_pending', '1');
+}
+
+/// ⭐ Zomato-style heads-up + sound + CU icon — with the screen on or off
 Future<void> _showLocal(Map<String, dynamic> data) async {
+  rememberBroadcast(data);
   final title = '${data['title'] ?? 'CUnnect'}';
   final body = '${data['body'] ?? ''}';
   final vendor = data['kind'] == 'vendor';
@@ -31,26 +81,33 @@ Future<void> _showLocal(Map<String, dynamic> data) async {
       importance: Importance.max,
       priority: Priority.high,
       icon: 'cu_notif',
+      playSound: true,
       sound: RawResourceAndroidNotificationSound(
           vendor ? 'cunnect_alert' : 'cunnect_ping'),
       enableVibration: true,
       enableLights: true,
+      category: AndroidNotificationCategory.message,
+      audioAttributesUsage: AudioAttributesUsage.notification,
       styleInformation: BigTextStyleInformation(body),
     ),
+    // ⭐ v63: iOS presentation — banner + sound, same as Android.
+    iOS: const DarwinNotificationDetails(
+        presentAlert: true, presentSound: true, presentBadge: true),
   );
   await _local.show(
     DateTime.now().millisecondsSinceEpoch ~/ 1000 % 1000000,
     title,
     body,
     details,
+    payload: '${data['route'] ?? (vendor ? 'vendor' : 'orders')}',
   );
 }
 
 /// ⭐ app killed/screen-off — background isolate me local notification
 @pragma('vm:entry-point')
 Future<void> fcmBackgroundHandler(RemoteMessage message) async {
-  // ⭐ notification payload ho to SYSTEM khud tray/heads-up dikhata hai
-  // (screen-off pe bhi guaranteed) — local sirf pure-data messages ke liye.
+  // ⭐ with a notification payload the SYSTEM shows the tray/heads-up itself
+  // (guaranteed even with the screen off) — local only for pure-data messages.
   if (message.notification == null) {
     await _showLocal(message.data);
   }
@@ -59,8 +116,8 @@ Future<void> fcmBackgroundHandler(RemoteMessage message) async {
 /// ⭐ Firebase init + channels + permission + token register
 Future<void> initFcm() async {
   if (kIsWeb) return;
-  // ⭐ foreground me koi popup/banner NAHI — user ne hatwa diya.
-  // System tray notification (background/screen-off) chalti rahegi.
+  // ⭐ NO popup/banner in the foreground — removed at the user's request.
+  // The system tray notification (background/screen-off) keeps working.
   try {
     await Firebase.initializeApp();
     FirebaseMessaging.onMessage.listen((m) {
@@ -72,16 +129,44 @@ Future<void> initFcm() async {
   startInstantPolling();
   try {
     await _local.initialize(
-        const InitializationSettings(
-            android: AndroidInitializationSettings('cu_notif')));
+      // ⭐ v63: iOS settings added — local notifications work on both.
+      const InitializationSettings(
+          android: AndroidInitializationSettings('cu_notif'),
+          iOS: DarwinInitializationSettings()),
+      // ⭐ v53: tap on a local notification -> jump to that section
+      onDidReceiveNotificationResponse: (resp) {
+        dispatchNotifRoute(resp.payload);
+      },
+    );
+    // ⭐ Cold start from a local notification tap
+    try {
+      final launch = await _local.getNotificationAppLaunchDetails();
+      if (launch?.didNotificationLaunchApp == true) {
+        pendingNotifRoute =
+            launch?.notificationResponse?.payload ?? pendingNotifRoute;
+      }
+    } catch (_) {}
     final android = _local
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
+    // ⭐ purane channels delete — unme sound settings corrupt/mute ho sakti
+    // (Android channel settings cannot be changed after creation).
+    for (final old in [
+      'cunnect_ping', 'cunnect_alert',
+      'cunnect_ping_v2', 'cunnect_alert_v2',
+      'cunnect_ping_v3', 'cunnect_alert_v3',
+      'cunnect_ping_v4', 'cunnect_alert_v4',
+    ]) {
+      try {
+        await android?.deleteNotificationChannel(old);
+      } catch (_) {}
+    }
     await android?.createNotificationChannel(const AndroidNotificationChannel(
       kChannelUser,
       'CUnnect Updates',
       description: 'Order & campus updates',
-      importance: Importance.high,
+      importance: Importance.max,
+      playSound: true,
       sound: RawResourceAndroidNotificationSound('cunnect_ping'),
       enableVibration: true,
       enableLights: true,
@@ -91,6 +176,7 @@ Future<void> initFcm() async {
       'CUnnect Partner Alerts',
       description: 'New order alerts — accept/reject',
       importance: Importance.max,
+      playSound: true,
       sound: RawResourceAndroidNotificationSound('cunnect_alert'),
       enableVibration: true,
       enableLights: true,
@@ -98,6 +184,22 @@ Future<void> initFcm() async {
     await android?.requestNotificationsPermission();
 
     FirebaseMessaging.onBackgroundMessage(fcmBackgroundHandler);
+    // ⭐ v53: FCM notification tapped while the app was in the background
+    FirebaseMessaging.onMessageOpenedApp.listen((m) {
+      rememberBroadcast(m.data);
+      dispatchNotifRoute('${m.data['route'] ?? ''}');
+    });
+    // ⭐ v53: FCM notification tapped while the app was fully CLOSED
+    try {
+      final initial = await FirebaseMessaging.instance.getInitialMessage();
+      if (initial != null) {
+        rememberBroadcast(initial.data);
+        pendingNotifRoute =
+            '${initial.data['route'] ?? ''}'.isEmpty
+                ? pendingNotifRoute
+                : '${initial.data['route']}';
+      }
+    } catch (_) {}
     await FirebaseMessaging.instance.requestPermission();
 
     final token = await FirebaseMessaging.instance.getToken();
@@ -131,8 +233,8 @@ Future<void> registerFcmToken([String? token, String role = 'student']) async {
 }
 
 // ⭐ INSTANT ALERT POLLING — battery saver / FCM delay se azad.
-// App foreground me khud har 12 sec backend check karti hai;
-// naya order / status change → turant local heads-up notification.
+// In the foreground the app itself checks the backend every 12 sec;
+// new order / status change → instant local heads-up notification.
 bool _inForeground = true;
 
 class _LifeObs extends WidgetsBindingObserver {
@@ -143,8 +245,7 @@ class _LifeObs extends WidgetsBindingObserver {
 }
 
 Timer? _pollTimer;
-int _pollCount = 0;
-double? _lastAttendance;
+
 final Set<String> _seenVendorOrders = {};
 final Map<String, String> _seenStudentStatus = {};
 bool _pollBusy = false;
@@ -162,7 +263,7 @@ Future<void> _pollTick() async {
   _pollBusy = true;
   try {
     final api = ApiClient();
-    // ⭐ vendor: naye pending orders turant
+    // ⭐ vendor: new pending orders instantly
     if (ApiConfig.vendorToken != null) {
       try {
         final r = await api.get('/api/vendor/dashboard/',
@@ -177,13 +278,14 @@ Future<void> _pollTick() async {
               'body':
                   '${o['order_number'] ?? ''} • ${o['customer_name'] ?? ''}',
               'kind': 'vendor',
+              'route': 'vendor',
             });
           }
           _seenVendorOrders.add(id);
         }
       } catch (_) {}
     }
-    // ⭐ student: order status change turant
+    // ⭐ student: order status changes instantly
     if (ApiConfig.studentToken != null) {
       try {
         final r = await api.get('/api/food/orders/status/',
@@ -199,35 +301,18 @@ Future<void> _pollTick() async {
               'body':
                   '${o['order_number'] ?? ''} • ${o['vendor_name'] ?? ''}',
               'kind': 'user',
+              'route': 'orders',
             });
           }
           _seenStudentStatus[id] = st;
         }
       } catch (_) {}
     }
-    // ⭐ UMS attendance watch (~2 min) — change hote hi alert
-    _pollCount++;
-    if (ApiConfig.studentToken != null && _pollCount % 10 == 0) {
-      try {
-        final r = await api.get('/api/ums/dashboard/',
-            token: ApiConfig.studentToken);
-        final raw = r['data']?['overall_attendance'];
-        final ov = raw is num ? raw.toDouble() : null;
-        if (ov != null) {
-          if (_lastAttendance != null &&
-              (ov - _lastAttendance!).abs() > 0.001) {
-            final msg = 'Overall attendance is now ${ov.toStringAsFixed(1)}%.';
-            if (_inForeground) {
-              showCunnectPopup('Attendance updated', msg);
-            } else {
-              await _showLocal(
-                  {'title': 'Attendance updated', 'body': msg, 'kind': 'user'});
-            }
-          }
-          _lastAttendance = ov;
-        }
-      } catch (_) {}
-    }
+    // ⭐ v62: UMS is NO LONGER polled from here. Scraping now happens
+    // ONLY when the student actually opens the UMS screen (the backend
+    // serves its cache instantly and refreshes in the background), and
+    // attendance-change alerts arrive via server-side FCM push from the
+    // keepalive — zero portal load from idle app users.
   } finally {
     _pollBusy = false;
   }

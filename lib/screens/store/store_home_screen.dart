@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../../services/app_store.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
 import '../printout/printout_home_screen.dart';
@@ -19,6 +21,13 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
   String _query = '';
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => context.read<AppStore>().loadStoreSections());
+  }
+
+  @override
   void dispose() {
     _search.dispose();
     super.dispose();
@@ -32,12 +41,26 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
     const printoutKw = 'printout print photocopy binding lamination documents';
     const fmcgKw = 'fmcg groceries snacks drinks daily essentials';
     const hostelKw =
-        'hostel essentials pack mattress pillow bucket jug rope clips hanger mat';
-    final printoutOn = _matches(printoutKw);
+        'hostel essentials mattress pillow bucket jug rope clips hanger mat';
+    // ⭐ v60: built-in sections are now admin-controlled — hidden when the
+    // admin switches them off, "coming soon" badge when flagged.
+    final builtin = context.watch<AppStore>().builtinSections;
+    bool activeOf(String key) =>
+        (builtin[key]?['is_active'] ?? true) as bool;
+    bool soonOf(String key) =>
+        (builtin[key]?['coming_soon'] ?? false) as bool;
+    final printoutOn = _matches(printoutKw) && activeOf('printout');
     final fmcgOn = _matches(fmcgKw);
-    final hostelOn = _matches(hostelKw);
-    final visible =
-        (printoutOn ? 1 : 0) + (fmcgOn ? 1 : 0) + (hostelOn ? 1 : 0);
+    final hostelOn = _matches(hostelKw) && activeOf('hostel');
+    final customSections = context.watch<AppStore>().storeSections;
+    final customOn = [
+      for (final sec in customSections)
+        if (_matches('${sec['title']} ${sec['subtitle']}'.toLowerCase())) sec,
+    ].length;
+    final visible = (printoutOn ? 1 : 0) +
+        (fmcgOn ? 1 : 0) +
+        (hostelOn ? 1 : 0) +
+        customOn;
 
     return Scaffold(
       backgroundColor: AppColors.page,
@@ -151,21 +174,42 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
               ),
             if (hostelOn)
               _categoryCard(
-                '🛏',
-                'Hostel Essentials Pack',
-                '8-in-1 — Mattress, Pillow, Bucket, Jug, Rope, Clips, Hanger, Foot Mat. FREE Diet Coke!',
-                null,
-                () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const HostelEssentialsScreen())),
+                (builtin['hostel']?['icon'] ?? '🛏') as String,
+                (builtin['hostel']?['title'] ?? 'Hostel Essentials')
+                    as String,
+                ((builtin['hostel']?['subtitle'] ?? '') as String).isNotEmpty
+                    ? (builtin['hostel']?['subtitle'] ?? '') as String
+                    : 'Mattress, pillow, bucket and everything your room needs.',
+                soonOf('hostel') ? 'COMING SOON' : null,
+                () {
+                  if (soonOf('hostel')) {
+                    showCunnectToast(context,
+                        'Hostel Essentials is coming soon on CUnnect.');
+                  } else {
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const HostelEssentialsScreen()));
+                  }
+                },
               ),
             if (printoutOn)
               _categoryCard(
-                '🖨',
-                'Printout Services',
-                'PDF print, color print, photocopy, binding and lamination.',
-                null,
-                () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const PrintoutHomeScreen())),
+                (builtin['printout']?['icon'] ?? '🖨') as String,
+                (builtin['printout']?['title'] ?? 'Printout Services')
+                    as String,
+                ((builtin['printout']?['subtitle'] ?? '') as String)
+                        .isNotEmpty
+                    ? (builtin['printout']?['subtitle'] ?? '') as String
+                    : 'PDF print, color print, photocopy, binding and lamination.',
+                soonOf('printout') ? 'COMING SOON' : null,
+                () {
+                  if (soonOf('printout')) {
+                    showCunnectToast(context,
+                        'Printout Services is coming soon on CUnnect.');
+                  } else {
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const PrintoutHomeScreen()));
+                  }
+                },
               ),
             if (fmcgOn)
               _categoryCard(
@@ -176,6 +220,22 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
                 () => showCunnectToast(context,
                     'FMCG & Groceries store is coming soon on CUnnect.'),
               ),
+            // ⭐ Custom sections created from the admin portal.
+            for (final sec in context.watch<AppStore>().storeSections)
+              if (_matches('${sec['title']} ${sec['subtitle']}'
+                  .toLowerCase()))
+                _categoryCard(
+                  (sec['icon'] ?? '🛍') as String,
+                  (sec['title'] ?? '') as String,
+                  (sec['subtitle'] ?? '') as String,
+                  (sec['coming_soon'] ?? false) as bool ? 'COMING SOON' : null,
+                  () => showCunnectToast(
+                      context,
+                      (sec['coming_soon'] ?? false) as bool
+                          ? '${sec['title']} is coming soon on CUnnect.'
+                          : '${sec['title']} — vendors are being onboarded. '
+                              'Stay tuned!'),
+                ),
           ],
         ),
       ),

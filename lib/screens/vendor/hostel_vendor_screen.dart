@@ -5,7 +5,7 @@ import '../../services/app_store.dart';
 import '../../theme/app_colors.dart';
 
 /// ⭐ Hostel vendor portal: pack orders list — order no, orderer (auto
-/// login wala) name+mobile, recipient name+mobile, address, UTR, status.
+/// login) name+mobile, recipient name+mobile, address, UTR, status.
 class HostelVendorScreen extends StatefulWidget {
   const HostelVendorScreen({super.key});
 
@@ -104,8 +104,12 @@ class _HostelVendorScreenState extends State<HostelVendorScreen> {
           _row('  Name', '${o['orderer_name']}'),
           _row('  UID', '${o['orderer_uid']}'),
           _row('  UPI', '${o['customer_upi']}'.isEmpty ? '—' : '${o['customer_upi']}'),
-          _row('  Txn',
-              '${o['txn_last4']}'.isEmpty ? '—' : '****${o['txn_last4']}'),
+          _row('  Txn ID',
+              '${o['txn_id'] ?? ''}'.isNotEmpty
+                  ? '${o['txn_id']}'
+                  : ('${o['txn_last4']}'.isEmpty
+                      ? '—'
+                      : '****${o['txn_last4']}')),
           _row('  Mobile',
               '${o['orderer_mobile']}'.isEmpty
                   ? 'Visible after you accept the order'
@@ -118,6 +122,14 @@ class _HostelVendorScreenState extends State<HostelVendorScreen> {
                   ? 'Visible after you accept the order'
                   : '${o['recipient_mobile']}'),
           const SizedBox(height: 8),
+          // ⭐ v60: ordered products (name × qty = amount)
+          if ((o['items'] as List? ?? []).isNotEmpty) ...[
+            _row('ITEMS', ''),
+            for (final it in (o['items'] as List))
+              _row('  ${(it as Map)['name']}',
+                  '×${it['qty']}  ·  ₹${((it['mrp'] ?? 0) as num) * ((it['qty'] ?? 1) as num)}'),
+            const SizedBox(height: 8),
+          ],
           _row('Address', '${o['address']}'),
           _row('Payment ref',
               '${o['payment_ref']}'.isEmpty ? '—' : '${o['payment_ref']}'),

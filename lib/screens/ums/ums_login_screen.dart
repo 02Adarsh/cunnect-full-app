@@ -7,7 +7,9 @@ import '../../services/api_client.dart';
 import '../../services/app_store.dart';
 import '../../services/open_url.dart';
 import '../../widgets/common.dart';
+import '../support_form_screen.dart';
 import 'ums_dashboard_screen.dart';
+import '../../widgets/platform_video.dart';
 
 /// CUIMS login — scraper_app ke login.html + enter_password.html ka
 /// exact Flutter mirror: black bg + glass card, CU-wordmark glow,
@@ -35,6 +37,21 @@ class _UmsLoginScreenState extends State<UmsLoginScreen> {
   bool _showPw = false;
   String? _captchaB64;
   String _stage1Uid = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // ⭐ v62: saved UMS session on the backend? Restore it silently and
+    // jump straight to the dashboard — no re-login, no manual refresh.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final store = context.read<AppStore>();
+      final restored = await store.umsAutoRestore();
+      if (restored && mounted) {
+        Navigator.of(context).pushReplacement(MaterialPageRoute(
+            builder: (_) => const UmsDashboardScreen()));
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -142,16 +159,24 @@ class _UmsLoginScreenState extends State<UmsLoginScreen> {
       backgroundColor: const Color(0xFF050505),
       body: Stack(
         children: [
-          // background gradient (video ki jagah ambient dark)
+          // ⭐ v53: same background video as the student login — plays
+          // muted from the on-device cache (downloaded once, ever).
+          Positioned.fill(
+            child: platformVideo(
+                '${ApiConfig.baseUrl}/static/images/login_background.mp4',
+                'ums-login-bg-video',
+                true),
+          ),
+          // dark scrim so the form stays perfectly readable
           const DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Color(0xFF0A0A0A),
-                  Color(0xFF050505),
-                  Color(0xFF000000),
+                  Color(0xD90A0A0A),
+                  Color(0xE6050505),
+                  Color(0xF2000000),
                 ],
               ),
             ),
@@ -458,13 +483,7 @@ class _UmsLoginScreenState extends State<UmsLoginScreen> {
           _redButton('LOGIN', _busy, _submitStage2),
           const SizedBox(height: 18),
           GestureDetector(
-            onTap: () async {
-              final message = await openExternalUrl(
-                  '${ApiConfig.baseUrl}/password_reset/');
-              if (mounted && message != null) {
-                showCunnectToast(context, message);
-              }
-            },
+            onTap: () => openCunnectSupportForm(context),
             child: const Text('Forgot Password?',
                 style: TextStyle(color: Color(0xFFFF8994), fontSize: 12)),
           ),

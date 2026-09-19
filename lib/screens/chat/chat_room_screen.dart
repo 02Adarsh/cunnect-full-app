@@ -10,7 +10,7 @@ import '../../services/open_url.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
 
-/// Room view — chat_room.html jaisa: header, pinned bar, messages, composer.
+/// Room view — like chat_room.html: header, pinned bar, messages, composer.
 class ChatRoomScreen extends StatefulWidget {
   final String roomName;
 

@@ -32,7 +32,7 @@ class _VendorEarningsScreenState extends State<VendorEarningsScreen> {
     final years = store.availableYears;
     final year = _selectedYear ?? years.first;
 
-    return Column(
+    final body = Column(
       children: [
         if (!widget.inShell)
           Padding(
@@ -199,6 +199,12 @@ class _VendorEarningsScreenState extends State<VendorEarningsScreen> {
           ),
         ),
       ],
+    );
+    // Standalone pushes need their own Scaffold (yellow-underline fix).
+    if (widget.inShell) return body;
+    return Scaffold(
+      backgroundColor: AppColors.page,
+      body: SafeArea(bottom: false, child: body),
     );
   }
 

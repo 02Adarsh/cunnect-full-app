@@ -5,8 +5,13 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
-/// ⭐ APK/mobile: background video — PEHLI baar download, phir phone ke
-/// cache se chalta hai (Render bandwidth bachta hai, turant load).
+/// ⭐ v53: one download is shared across ALL screens that show the same
+/// video (student/UMS/vendor/admin logins) — if two screens ask at the
+/// same moment only one network request happens.
+final Map<String, Future<File?>> _videoFetches = {};
+
+/// ⭐ APK/mobile: background video — downloaded ONCE, then it
+/// plays from cache (saves Render bandwidth, loads instantly).
 Widget platformVideo(String url, String viewId, bool muted,
     {VoidCallback? onError}) {
   if (!(Platform.isAndroid || Platform.isIOS)) {
@@ -47,9 +52,16 @@ class _NativeVideoState extends State<_NativeVideo> {
     _init();
   }
 
-  Future<File?> _cachedFile() async {
+  Future<File?> _cachedFile() {
+    // ⭐ v53: shared in-flight fetch — never downloads twice.
+    return _videoFetches.putIfAbsent(widget.url, () => _fetchOnce());
+  }
+
+  Future<File?> _fetchOnce() async {
     try {
-      final dir = await getTemporaryDirectory();
+      // ⭐ v53: permanent app storage (the temp dir can be wiped by the
+      // OS which would force a re-download and burn backend bandwidth).
+      final dir = await getApplicationDocumentsDirectory();
       final name = widget.url
           .split('/')
           .last
@@ -58,6 +70,15 @@ class _NativeVideoState extends State<_NativeVideo> {
       if (await f.exists() && (await f.length()) > 100000) {
         return f;
       }
+      // ⭐ one-time migration from the old temp-dir cache (no re-download)
+      try {
+        final tmp = await getTemporaryDirectory();
+        final old = File('${tmp.path}/cunnect_video_$name');
+        if (await old.exists() && (await old.length()) > 100000) {
+          await old.copy(f.path);
+          return f;
+        }
+      } catch (_) {}
       final resp = await http
           .get(Uri.parse(widget.url))
           .timeout(const Duration(seconds: 90));
@@ -65,7 +86,9 @@ class _NativeVideoState extends State<_NativeVideo> {
         await f.writeAsBytes(resp.bodyBytes, flush: true);
         return f;
       }
-    } catch (_) {}
+    } catch (_) {
+      _videoFetches.remove(widget.url); // allow a retry next time
+    }
     return null;
   }
 

@@ -4,13 +4,15 @@ import 'package:provider/provider.dart';
 
 import 'screens/splash_screen.dart';
 import 'services/app_store.dart';
+import 'services/deep_link.dart';
 import 'services/fcm.dart';
 import 'services/local_store.dart';
+import 'services/notif_router.dart';
 import 'theme/app_colors.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // ⭐ mobile pe saved session restore ke liye storage ready karo
+  // ⭐ prepare storage for restoring the saved session on mobile
   await LocalStore.init();
   // ⭐ FCM push notifications (screen-off / lock screen)
   await initFcm();
@@ -21,6 +23,11 @@ void main() async {
     systemNavigationBarIconBrightness: Brightness.light,
   ));
   runApp(const CunnectFoodApp());
+  // ⭐ v53: notification-tap deep links — installed AFTER runApp so the
+  // navigator exists; replays a cold-start tap automatically.
+  NotifRouter.install();
+  // ⭐ v63: cunnect:// links (password-reset email opens the app).
+  DeepLinks.install();
 }
 
 class CunnectFoodApp extends StatelessWidget {

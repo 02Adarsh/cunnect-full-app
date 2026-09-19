@@ -690,9 +690,9 @@ class _FoodItemRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(item.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                  DishNameWithMark(
+                      name: item.name,
+                      isVeg: item.isVeg,
                       style: const TextStyle(
                           color: Color(0xFFF4F4F4), fontSize: 13.5, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 2),
@@ -781,7 +781,10 @@ class _FoodItemRow extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(item.name,
+                        DishNameWithMark(
+                            name: item.name,
+                            isVeg: item.isVeg,
+                            maxLines: 2,
                             style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,

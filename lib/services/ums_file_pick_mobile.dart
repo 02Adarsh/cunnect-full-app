@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 
-/// ⭐ APK/mobile: gallery/file picker se image -> dataURL (web jaisa hi).
+/// ⭐ APK/mobile: image from the gallery/file picker -> dataURL (same as web).
 const bool supported = true;
 
 Future<String?> pickImageDataUrlImpl() async {

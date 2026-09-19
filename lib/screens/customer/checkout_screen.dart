@@ -1,8 +1,10 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../services/api_client.dart';
 import '../../services/app_store.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
@@ -26,6 +28,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   bool _placing = false;
   String _paymentMethod = 'upi';
   String? _selectedCoupon;
+
+  @override
+  void initState() {
+    super.initState();
+    // ⭐ v55: UPI is the pre-selected method, so the QR must load
+    // immediately on open — previously it only loaded when the user
+    // tapped the UPI option, forcing a manual Retry every time.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _paymentMethod == 'upi') {
+        _loadQr(context.read<AppStore>());
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -144,6 +159,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       GestureDetector(
                         onTap: () {
                           store.removeCoupon();
+                          // ⭐ v56: total changed back — refresh the QR
+                          // so the embedded amount stays exact.
+                          if (_paymentMethod == 'upi') _loadQr(store);
                           showCunnectToast(context, 'Coupon removed.');
                         },
                         child: const Text('Remove',
@@ -197,9 +215,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(cartItem.foodItem.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                            DishNameWithMark(
+                                name: cartItem.foodItem.name,
+                                isVeg: cartItem.foodItem.isVeg,
                                 style: const TextStyle(
                                     color: Color(0xFFEDEDED),
                                     fontSize: 12,
@@ -303,6 +321,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             onPressed: () async {
               final result = await store.applyCoupon(_selectedCoupon ?? '');
               if (!context.mounted) return;
+              // ⭐ v56: the total changed — refresh the QR so the amount
+              // embedded in it (auto-filled on scan) stays exact.
+              if (result.success && _paymentMethod == 'upi') {
+                _loadQr(store);
+              }
               if (result.showPopup) {
                 _showCouponPopup(result.message);
               } else {
@@ -525,7 +548,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     setState(() {
       _qrLoading = false;
       _qrB64 = (data?['qr_b64'] ?? '') as String;
-      _qrUrl = (data?['qr_url'] ?? '') as String;
+      // ⭐ v54: uploaded QR arrives as a relative /media/ URL — make
+      // it absolute so Image.network can actually load it.
+      final rawUrl = (data?['qr_url'] ?? '') as String;
+      _qrUrl = rawUrl.isEmpty ? '' : ApiConfig.media(rawUrl);
       _qrUpiId = (data?['upi_id'] ?? '') as String;
     });
   }
@@ -544,10 +570,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         children: [
           const Text('UPI Payment',
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 4),
-          Text('Scan the partner QR to pay ₹${store.finalTotal.round()}, '
-              'then paste the full transaction ID below.',
-              style: const TextStyle(color: AppColors.muted, fontSize: 11, height: 1.4)),
           const SizedBox(height: 12),
           Center(
             child: _qrLoading
@@ -556,7 +578,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     child: SizedBox(width: 26, height: 26,
                         child: CircularProgressIndicator(strokeWidth: 2.5)),
                   )
-                : _qrB64 == null || _qrB64!.isEmpty
+                : (_qrB64 == null || _qrB64!.isEmpty) &&
+                        (_qrUrl == null || _qrUrl!.isEmpty)
                     ? Column(children: [
                         const Text('QR could not load — the partner has not set a UPI.',
                             style: TextStyle(color: AppColors.muted, fontSize: 11)),
@@ -568,27 +591,108 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                   fontSize: 11, fontWeight: FontWeight.w800)),
                         ),
                       ])
-                    : Column(children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
+                    : GestureDetector(
+                        onTap: () => _showQrFullScreen(context, store),
+                        child: Column(children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: _qrImage(168),
                           ),
-                          child: _qrUrl != null && _qrUrl!.isNotEmpty
-                              ? Image.network(_qrUrl!,
-                                  width: 170, height: 170)
-                              : Image.memory(
-                                  base64Decode(_qrB64!),
-                                  width: 170, height: 170),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(_qrUpiId,
-                            style: const TextStyle(fontSize: 12,
-                                fontWeight: FontWeight.w700)),
-                      ]),
+                          const SizedBox(height: 7),
+                          Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(Icons.zoom_out_map_rounded,
+                                    size: 11, color: Color(0xFF7A7A7A)),
+                                SizedBox(width: 4),
+                                Text('Tap QR to enlarge',
+                                    style: TextStyle(
+                                        color: Color(0xFF7A7A7A),
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: .3)),
+                              ]),
+                        ]),
+                      ),
           ),
+          // ⭐ v55: elegant UPI ID strip (copy chip) — exactly like the
+          // hostel store payment section.
+          if (_qrUpiId.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141414),
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: const Color(0xFF2C2C2C)),
+              ),
+              child: Row(children: [
+                const Icon(Icons.account_balance_wallet_outlined,
+                    size: 16, color: Color(0xFFFFD34D)),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('PAY TO UPI ID',
+                          style: TextStyle(
+                              color: Color(0xFF8A8A8A),
+                              fontSize: 8,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.1)),
+                      const SizedBox(height: 2),
+                      Text(_qrUpiId,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: .4,
+                              color: Color(0xFFF4F4F4))),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: _qrUpiId));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('UPI ID copied')));
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0x1AF10B1D),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0x40F10B1D)),
+                    ),
+                    child: Row(children: const [
+                      Icon(Icons.copy_rounded,
+                          size: 11, color: Color(0xFFFFABB2)),
+                      SizedBox(width: 4),
+                      Text('COPY',
+                          style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: .6,
+                              color: Color(0xFFFFABB2))),
+                    ]),
+                  ),
+                ),
+              ]),
+            ),
+          ],
           const SizedBox(height: 12),
+          // ⭐ v60: concise bullet-point payment steps
+          const PaymentSteps(),
+          const SizedBox(height: 8),
           _fieldLabel('Transaction ID', hint: '(paste the full ID after payment)'),
           TextField(
             controller: _txnController,
@@ -598,6 +702,91 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  /// QR image widget (URL preferred, else base64) — one render path.
+  Widget _qrImage(double size) {
+    if (_qrUrl != null && _qrUrl!.isNotEmpty) {
+      return Image.network(_qrUrl!, width: size, height: size);
+    }
+    return Image.memory(base64Decode(_qrB64!), width: size, height: size);
+  }
+
+  /// ⭐ QR tap -> full-screen enlarge (dark overlay, tap-anywhere / × close)
+  /// — same experience as the hostel store payment section.
+  void _showQrFullScreen(BuildContext context, AppStore store) {
+    final hasQr = (_qrB64 != null && _qrB64!.isNotEmpty) ||
+        (_qrUrl != null && _qrUrl!.isNotEmpty);
+    if (!hasQr) return;
+    showDialog(
+      context: context,
+      barrierColor: const Color(0xF2000000),
+      builder: (dialogContext) {
+        final size = MediaQuery.of(dialogContext).size.width - 56;
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => Navigator.of(dialogContext).pop(),
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: SafeArea(
+              child: Column(children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 8, 14, 0),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(99),
+                      onTap: () => Navigator.of(dialogContext).pop(),
+                      child: Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E1E1E),
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(color: const Color(0xFF3A3A3A)),
+                        ),
+                        child: const Icon(Icons.close_rounded,
+                            size: 18, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Center(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: _qrImage(size),
+                      ),
+                      const SizedBox(height: 14),
+                      Text('Scan to pay ₹${store.finalTotal.round()}',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800)),
+                      if (_qrUpiId.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(_qrUpiId,
+                            style: const TextStyle(
+                                color: Color(0xFFBDBDBD), fontSize: 11)),
+                      ],
+                      const SizedBox(height: 6),
+                      const Text('Tap anywhere to close',
+                          style: TextStyle(
+                              color: Color(0xFF8A8A8A), fontSize: 10)),
+                    ]),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        );
+      },
     );
   }
 

@@ -9,8 +9,8 @@ import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
 import 'food_home_screen.dart';
 
-/// ⭐ My Orders — FOOD + PRINTOUT + HOSTEL, saare orders ek jagah.
-/// `mode: 'food'` → sirf food orders (food app ke Orders button ke liye).
+/// ⭐ My Orders — FOOD + PRINTOUT + HOSTEL, all orders in one place.
+/// `mode: 'food'` → food orders only (for the food app's Orders button).
 class MyOrdersScreen extends StatefulWidget {
   final String mode; // 'all' | 'food'
 
@@ -87,7 +87,7 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
                 Text(
                     foodOnly
                         ? 'Your food orders — with live status.'
-                        : 'Food, printout & hostel — saare orders ek jagah.',
+                        : 'Food, printout & hostel — all orders in one place.',
                     style: const TextStyle(color: AppColors.muted, fontSize: 12)),
               ],
             ),
@@ -491,7 +491,17 @@ class _HostelCard extends StatelessWidget {
                             fontWeight: FontWeight.w800,
                             color: Color(0xFFFFD34D))),
                     const SizedBox(height: 4),
-                    Text('Hostel Essentials 8-in-1 Pack',
+                    // ⭐ v60: item summary instead of the old fixed pack
+                    Text(
+                        (order['items'] as List? ?? []).isNotEmpty
+                            ? [
+                                for (final it
+                                    in (order['items'] as List))
+                                  '${(it as Map)['name']} ×${it['qty']}'
+                              ].join(', ')
+                            : 'Hostel Essentials',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                             color: AppColors.muted, fontSize: 11)),
                   ],

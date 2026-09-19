@@ -4,9 +4,9 @@ import '../../services/api_client.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/platform_video.dart';
 
-/// ⭐ Chat under construction — sirf full-screen background video
-/// (sound ke saath, koi mute option nahi) + back button. Koi extra
-/// text/button nahi. Video na ho to chhota sa fallback message.
+/// ⭐ Chat under construction — just a full-screen background video
+/// (with sound, no mute option) + back button. No extra text/buttons.
+/// If the video is missing, a small fallback message is shown.
 class ChatUnderConstructionScreen extends StatefulWidget {
   const ChatUnderConstructionScreen({super.key});
 

@@ -1,11 +1,11 @@
-/// ID-card image picker — web browser me hidden <input type=file> kholta
-/// hai (original dashboard.html wala hi flow); baaki platforms pe
-/// unsupported (stub null deta hai).
+/// ID-card image picker — opens a hidden <input type=file> in the web browser
+/// (same flow as the original dashboard.html); unsupported on other
+/// platforms (the stub returns null).
 import 'ums_file_pick_stub.dart'
     if (dart.library.html) 'ums_file_pick_web.dart'
     if (dart.library.io) 'ums_file_pick_mobile.dart' as impl;
 
 bool get idPickSupported => impl.supported;
 
-/// Gallery/file picker kholo -> image ka dataURL wapas (cancel = null).
+/// Open the gallery/file picker -> returns the image dataURL (cancel = null).
 Future<String?> pickImageDataUrl() => impl.pickImageDataUrlImpl();

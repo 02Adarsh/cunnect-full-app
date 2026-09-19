@@ -174,9 +174,9 @@ class _CartItemRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(item.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                DishNameWithMark(
+                    name: item.name,
+                    isVeg: item.isVeg,
                     style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, height: 1.2)),
                 const SizedBox(height: 3),
                 Text('₹${item.price.round()}',

@@ -4,11 +4,14 @@ import 'package:provider/provider.dart';
 import '../../services/app_store.dart';
 
 import '../../theme/app_colors.dart';
+import '../printout/print_vendor_dashboard_screen.dart';
+import 'hostel_products_screen.dart';
 import 'hostel_vendor_screen.dart';
 import 'vendor_dashboard_screen.dart';
 import 'vendor_earnings_screen.dart';
 import 'vendor_menu_screen.dart';
 import 'vendor_profile_screen.dart';
+import '../ride/rider_console_screen.dart';
 
 /// Vendor portal shell with the same 5-tab bottom nav
 /// (Home, Orders, Menu, Earnings, Profile) as vendor_dashboard.html.
@@ -40,7 +43,12 @@ class _VendorShellState extends State<VendorShell> {
         store.refreshVendorDashboard();
         break;
       case 2:
-        store.loadVendorMenu();
+        // ⭐ v61: the hostel vendor's tab is their product catalogue
+        if (store.vendor.vendorType == 'hostel') {
+          store.loadVendorHostelProducts();
+        } else {
+          store.loadVendorMenu();
+        }
         break;
       case 3:
         store.loadVendorEarnings();
@@ -61,17 +69,9 @@ class _VendorShellState extends State<VendorShell> {
             : const VendorDashboardScreen(
                 key: ValueKey('orders'), focusOrders: true);
       case 2:
-        if (isHostel) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(30),
-              child: Text(
-                  '🛏 Hostel Essentials Pack\n8-in-1 • ₹1799\n\nOrders appear in the "Orders" tab.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF9d9d9d), fontSize: 12, height: 1.6)),
-            ),
-          );
-        }
+        // ⭐ v61: hostel vendor manages their whole catalogue here —
+        // products, stock, photos, storefront description, open/close.
+        if (isHostel) return const HostelProductsScreen(key: ValueKey('store'));
         return const VendorMenuScreen(key: ValueKey('menu'), inShell: true);
       case 3:
         return const VendorEarningsScreen(key: ValueKey('earnings'), inShell: true);
@@ -82,6 +82,16 @@ class _VendorShellState extends State<VendorShell> {
 
   @override
   Widget build(BuildContext context) {
+    // ⭐ Print partners get their own dedicated dashboard (orders +
+    // settings) — the food nav tabs are not relevant for them.
+    if (context.watch<AppStore>().vendor.vendorType == 'printout') {
+      return const PrintVendorDashboardScreen();
+    }
+    // ⭐ v66: ride partners get their own console (requests, OTP,
+    // pricing) — the food/orders tabs make no sense for a driver.
+    if (context.watch<AppStore>().vendor.vendorType == 'ride') {
+      return const RiderConsoleScreen();
+    }
     return Scaffold(
       backgroundColor: AppColors.page,
       body: SafeArea(bottom: false, child: _body),
@@ -98,8 +108,20 @@ class _VendorShellState extends State<VendorShell> {
           children: [
             for (var i = 0; i < 5; i++)
               Expanded(
-                  child: _navItem(i, const ['⌂', '▣', '☰', '₹', '◉'][i],
-                      const ['Home', 'Orders', 'Menu', 'Earnings', 'Profile'][i])),
+                  child: _navItem(
+                      i,
+                      const ['⌂', '▣', '☰', '₹', '◉'][i],
+                      [
+                        'Home',
+                        'Orders',
+                        // ⭐ v61: hostel partners see "Store", not "Menu"
+                        context.watch<AppStore>().vendor.vendorType ==
+                                'hostel'
+                            ? 'Store'
+                            : 'Menu',
+                        'Earnings',
+                        'Profile'
+                      ][i])),
           ],
         ),
       ),

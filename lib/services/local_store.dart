@@ -1,5 +1,5 @@
 /// ⭐ Chhoti si persistent storage — web: localStorage, mobile/desktop:
-/// shared_preferences. main() me LocalStore.init() await karo.
+/// shared_preferences. Await LocalStore.init() in main().
 import 'local_store_stub.dart'
     if (dart.library.html) 'local_store_web.dart'
     if (dart.library.io) 'local_store_mobile.dart' as impl;

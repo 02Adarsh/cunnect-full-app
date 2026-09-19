@@ -37,7 +37,7 @@ Future<String?> pickImageDataUrlImpl() {
     });
     reader.readAsDataUrl(file);
   });
-  // User ne picker band kar diya bina file chune -> 60s baad null.
+  // The user closed the picker without choosing a file -> null after 60s.
   Timer(const Duration(seconds: 60), () {
     if (!settled) {
       settled = true;

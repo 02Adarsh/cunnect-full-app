@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../services/api_client.dart';
 import '../../services/app_store.dart';
 import '../../services/open_url.dart';
+import '../pdf_viewer_screen.dart';
 import '../../services/ums_file_pick.dart';
 import '../../widgets/common.dart';
 import 'ums_login_screen.dart';
@@ -17,7 +18,7 @@ import 'ums_login_screen.dart';
 /// lecture-plan PDFs, results (semester dropdown + SGPA/CGPA + summary),
 /// notices + files, fees (FY groups + LATEST + due hero), hostel,
 /// profile (photo hero + ID card upload/viewer).
-/// ⭐ portal jaisa %: 62.62 -> '62.62', 60 -> '60'
+/// ⭐ percentage formatted like the portal: 62.62 -> '62.62', 60 -> '60'
 String _pctStr(num v) =>
     v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
 
@@ -71,13 +72,24 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
     super.initState();
     _store = context.read<AppStore>()..addListener(_onStore);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // ⭐ v62: opening the screen IS the trigger — cached data paints
+      // instantly, the backend refreshes in the background, and the
+      // early syncs below pull the fresh numbers in without any manual
+      // refresh. No scraping ever happens while this screen is closed.
       _store?.loadUmsDashboard();
+      Future.delayed(const Duration(seconds: 10), () {
+        if (mounted) _sync();
+      });
+      Future.delayed(const Duration(seconds: 25), () {
+        if (mounted) _sync();
+      });
     });
-    // ⭐ live badges har 30 sec refresh (original updateLiveSchedule jaisa)
+    // ⭐ refresh the live badges every 30 sec (like the original updateLiveSchedule)
     _tick = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() => _now = DateTime.now());
     });
-    // ⭐ realtime sync: har 60 sec attendance numbers + alive check
+    // ⭐ realtime sync while the screen is OPEN — the ping endpoint reads
+    // the server cache only (no portal hit), so this stays feather-light.
     _syncTimer = Timer.periodic(const Duration(seconds: 60), (_) => _sync());
   }
 
@@ -138,7 +150,7 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
                 busy = false;
                 err = '${res['error']}';
               });
-              await st.umsFetchCaptcha(); // galat code -> naya captcha
+              await st.umsFetchCaptcha(); // wrong code -> new captcha
               ctrl.clear();
               if (mounted) setS(() {});
             } else {
@@ -266,7 +278,7 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
     ).then((_) {
       _verifyOpen = false;
       ctrl.dispose();
-      // ⭐ verify kiye bina band kiya -> 10 min cooldown (har 2 min popup nahi)
+      // ⭐ closed without verifying -> 10 min cooldown (no popup every 2 min)
       if (st.umsNeedsCaptcha) st.markUmsCaptchaDismissed();
     });
   }
@@ -321,11 +333,32 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
 
   String _abs(String url) {
     if (url.isEmpty || url.startsWith('http')) return url;
-    return ApiConfig.baseUrl + (url.startsWith('/') ? url : '/$url');
+    var full = ApiConfig.baseUrl + (url.startsWith('/') ? url : '/$url');
+    // ⭐ v65 security: UMS media/PDF endpoints now require auth — these
+    // URLs load via Image.network/browser (no headers), so the token
+    // rides along as a query parameter instead.
+    if (url.contains('/api/ums/')) {
+      final tok = ApiConfig.studentToken ?? '';
+      if (tok.isNotEmpty) {
+        full += (full.contains('?') ? '&' : '?') + 'token=$tok';
+      }
+    }
+    return full;
   }
 
   Future<void> _open(String url) async {
-    final message = await openExternalUrl(_abs(url));
+    final full = _abs(url);
+    // ⭐ v59: UMS documents (lecture plans, datesheets, portal PDFs)
+    // open INSIDE the app now — no browser redirect.
+    final lower = Uri.parse(full).path.toLowerCase();
+    if (full.contains('/api/ums/pdf/') || lower.endsWith('.pdf')) {
+      if (!mounted) return;
+      Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => PdfViewerScreen(
+              url: full, title: 'Lecture Plan')));
+      return;
+    }
+    final message = await openExternalUrl(full);
     if (mounted && message != null) showCunnectToast(context, message);
   }
 
@@ -502,7 +535,7 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
           ),
           const SizedBox(width: 6),
           const Spacer(),
-          // ⌂ dashboard pe wapas
+          // ⌂ back to the dashboard
           GestureDetector(
             onTap: () {
               if (Navigator.of(context).canPop()) {
@@ -642,8 +675,8 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
   }
 
   Widget _panel(int tab, AppStore store, Map<String, dynamic> data) {
-    // Sirf selected panel build hota hai + har panel guarded hai —
-    // ek kharab section poori screen ko blank nahi kar sakta.
+    // Only the selected panel is built + every panel is guarded —
+    // one broken section cannot blank the whole screen.
     switch (tab) {
       case 0:
         return _safePanel('Attendance', () => _attendance(store, data));
@@ -940,8 +973,8 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
 
   String _todayKey() => _dow[DateTime.now().weekday % 7];
 
-  /// Portal meridiem sirf end pe deta hai ("11:20 - 12:10 PM") —
-  /// original dashboard.html ke parseTimeRange ka exact Dart port.
+  /// The portal only gives the meridiem at the end ("11:20 - 12:10 PM") —
+  /// exact Dart port of the original dashboard.html parseTimeRange.
   Map<String, int?> _parseTimeRange(String text) {
     int toMinutes(int h, int m, String? mer) {
       if (mer == 'PM' && h < 12) h += 12;
@@ -1511,7 +1544,6 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
     final results = _list(data['exam_results']);
     final marks = _list(data['marks']);
     final flat = _list(data['subject_grades']);
-    final uid = _s(data['uid']);
     final sgpa = _s(data['active_sgpa']).isEmpty ? '0.00' : _s(data['active_sgpa']);
     final cgpa = _s(data['student_cgpa']).isEmpty ? '0.00' : _s(data['student_cgpa']);
     final totalCredits = _n(data['total_credits']).round();
@@ -1587,8 +1619,7 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _mono(uid, 11, color: _muted),
-                  const SizedBox(height: 6),
+                  // ⭐ v53: UID text removed at the user's request
                   const Text('End Semester Examination',
                       style: TextStyle(
                           fontSize: 18,
@@ -2021,8 +2052,8 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
           String sgpa) =>
       LayoutBuilder(
         builder: (context, constraints) {
-          // ⭐ original jaisa overflow-x table: narrow screen pe horizontal
-          // scroll, columns fixed width — numbers kabhi wrap/mix nahi hote.
+          // ⭐ overflow-x table like the original: horizontal scroll on narrow
+          // screens, fixed-width columns — numbers never wrap/mix.
           const codeW = 96.0;
           const intW = 54.0;
           const extW = 54.0;
@@ -2622,6 +2653,44 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
   }
 
   // ---------- HOSTEL ----------
+  /// ⭐ v53: left-aligned key/value ledger (hostel section) — every
+  /// label + value pair sits flush left in a symmetric ordered column.
+  Widget _kvRowsLeft(List<Map<String, dynamic>> rows) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < rows.length; i++)
+            Container(
+              width: double.infinity,
+              padding:
+                  EdgeInsets.only(bottom: i < rows.length - 1 ? 12 : 0),
+              margin:
+                  EdgeInsets.only(bottom: i < rows.length - 1 ? 12 : 0),
+              decoration: BoxDecoration(
+                  border: i < rows.length - 1
+                      ? const Border(bottom: BorderSide(color: _hair))
+                      : null),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _mono(_s(rows[i]['label']).toUpperCase(), 8.5,
+                      color: _muted, w: FontWeight.w800),
+                  const SizedBox(height: 5),
+                  Text(
+                      _s(rows[i]['value']).isEmpty
+                          ? '\u2014'
+                          : _s(rows[i]['value']),
+                      textAlign: TextAlign.left,
+                      style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          height: 1.4)),
+                ],
+              ),
+            ),
+        ],
+      );
+
   Widget _kvRows(List<Map<String, dynamic>> rows) => Column(
         children: [
           for (var i = 0; i < rows.length; i++)
@@ -2659,7 +2728,7 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
         ],
       );
 
-  /// Section rows — kv (dicts) ya portal-table (list of lists) dono shapes.
+  /// Section rows — both kv (dicts) and portal-table (list of lists) shapes.
   List<dynamic> _secRows(dynamic node) {
     final m = _map(node);
     final kv = m['kv'];
@@ -2725,7 +2794,7 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
       );
     }
     final cells = row is List ? row : [row];
-    // ⭐ 3+ column rows: stacked card style — purane jaisa readable, no clipping
+    // ⭐ 3+ column rows: stacked card style — readable like before, no clipping
     if (cells.length > 2) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2827,7 +2896,9 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
               ],
             ),
             const SizedBox(height: 14),
-            _kvRows(kv),
+            // ⭐ v53: left-aligned ledger — label above value, both
+            // flush to the left edge in one clean ordered column.
+            _kvRowsLeft(kv),
           ]),
         for (final sec in sections)
           if (_secRows(sec).isNotEmpty) ...[
@@ -2942,8 +3013,6 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                             fontSize: 18, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    _mono(uid, 10, color: _muted),
                   ],
                 ),
               ),
@@ -3033,7 +3102,7 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
                       errorBuilder: (_, __, ___) => Container(
                           height: 120,
                           alignment: Alignment.center,
-                          child: _mono('IMAGE LOAD NAHI HUI', 10,
+                          child: _mono('IMAGE FAILED TO LOAD', 10,
                               color: _muted))),
                 ),
               ),
@@ -3170,7 +3239,7 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
     if (!mounted) return;
     setState(() => _idcBusy = false);
     showCunnectToast(
-        context, okk ? 'ID CARD SAVED \u2713' : 'UPLOAD FAIL \u2014 DOBARA TRY KARO');
+        context, okk ? 'ID CARD SAVED \u2713' : 'UPLOAD FAILED \u2014 TRY AGAIN');
   }
 }
 
@@ -3246,7 +3315,7 @@ class _IdCardViewer extends StatelessWidget {
                     child: Image.network(url,
                         fit: BoxFit.contain,
                         errorBuilder: (_, __, ___) => const Text(
-                            'IMAGE LOAD NAHI HUI',
+                            'IMAGE FAILED TO LOAD',
                             style: TextStyle(
                                 fontFamily: 'monospace',
                                 fontSize: 10,
@@ -3304,12 +3373,19 @@ class _CourseSheetState extends State<_CourseSheet> {
 
   static const _dow = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
-  /// ⭐ Is subject ki AAJ se aage waali classes (timetable se) —
+  /// ⭐ Upcoming classes for this subject from TODAY onward (from the timetable) —
   /// original predOcc: day-wise occurrences today-first order me.
   List<String> _occurrences() {
+    // ⭐ v53: prediction week starts NOW — today contributes only the
+    // lectures of this subject still LEFT today (start time after now),
+    // then upcoming days follow for one full week.
     final code = _s(widget.course['code']).toUpperCase();
     if (code.isEmpty) return const [];
-    final counts = <String, int>{};
+    final counts = <String, int>{}; // full-day counts (upcoming days)
+    final todayLeft = <int>[]; // start-minutes of today's slots
+    final now = DateTime.now();
+    final todayShort = _dow[now.weekday % 7];
+    final nowMin = now.hour * 60 + now.minute;
     for (final e in widget.timetable.entries) {
       final day = _s(e.key).trim().toUpperCase();
       if (day.length < 3) continue;
@@ -3320,15 +3396,20 @@ class _CourseSheetState extends State<_CourseSheet> {
         if (slot is Map &&
             _s(slot['code']).toUpperCase() == code) {
           counts[short] = (counts[short] ?? 0) + 1;
+          if (short == todayShort) {
+            final st = _slotStartMin(_s(slot['time']));
+            if (st == null || st > nowMin) todayLeft.add(st ?? 24 * 60);
+          }
         }
       }
     }
-    final today = DateTime.now().weekday % 7;
+    final today = now.weekday % 7;
     final occ = <String>[];
     for (var i = 0; i < 7; i++) {
       final name = _dow[(today + i) % 7];
-      for (var j = 0; j < (counts[name] ?? 0); j++) {
-        occ.add(name);
+      final n = i == 0 ? todayLeft.length : (counts[name] ?? 0);
+      for (var j = 0; j < n; j++) {
+        occ.add(i == 0 ? 'TODAY' : name);
       }
     }
     return occ;
@@ -3709,7 +3790,7 @@ class _CourseSheetState extends State<_CourseSheet> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      _mono('OFFICIAL PORTAL PDF \u00B7 NEW TAB', 8,
+                      _mono('OFFICIAL PORTAL PDF \u00B7 OPENS IN APP', 8,
                           color: _muted),
                     ] else
                       Container(
@@ -4015,6 +4096,30 @@ class _CourseSheetState extends State<_CourseSheet> {
 }
 
 // ══════════ PREDICT SHEET ══════════
+/// ⭐ v53: start-minutes of a slot time like "10:15-11:05" / "01:15 PM".
+/// Mirrors the dashboard's parser: no meridiem + hour 1..6 => PM.
+int? _slotStartMin(String text) {
+  final parts =
+      text.toUpperCase().trim().split(RegExp(r'[-\u2013\u2014]|\bTO\b'));
+  if (parts.isEmpty) return null;
+  final re = RegExp(r'(\d{1,2})[:.](\d{2})');
+  final m = re.firstMatch(parts[0]);
+  if (m == null) return null;
+  var h = int.tryParse(m.group(1)!) ?? 99;
+  final min = int.tryParse(m.group(2)!) ?? 99;
+  if (h > 23 || min > 59) return null;
+  final c = parts[0].replaceAll('.', '');
+  final mer = c.contains('PM') ? 'PM' : (c.contains('AM') ? 'AM' : null);
+  if (mer == 'PM' && h < 12) {
+    h += 12;
+  } else if (mer == 'AM' && h == 12) {
+    h = 0;
+  } else if (mer == null && h >= 1 && h <= 6) {
+    h += 12;
+  }
+  return h * 60 + min;
+}
+
 class _PredictSheet extends StatefulWidget {
   final double attended;
   final double held;
@@ -4066,16 +4171,37 @@ class _PredictSheetState extends State<_PredictSheet> {
     return [];
   }
 
-  List<Map<String, dynamic>> get _dayList => [
-        for (final e in widget.timetable.entries)
-          {
-            'day': e.key,
-            'codes': [
-              for (final slot in _slotsOf(e.value))
-                (slot['code'] ?? '').toString(),
-            ],
-          },
+  static const _dowShort = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+  /// ⭐ v53: prediction week starts TODAY — today's entry counts only the
+  /// lectures still LEFT today (start time after now), then the upcoming
+  /// days follow in real calendar order for one full week.
+  List<Map<String, dynamic>> get _dayList {
+    final slotsByDay = <String, List<Map<String, dynamic>>>{};
+    for (final e in widget.timetable.entries) {
+      final k = e.key.toString().trim();
+      if (k.length < 3) continue;
+      slotsByDay[k.substring(0, 3).toUpperCase()] = _slotsOf(e.value);
+    }
+    final now = DateTime.now();
+    final todayIdx = now.weekday % 7;
+    final nowMin = now.hour * 60 + now.minute;
+    final out = <Map<String, dynamic>>[];
+    for (var i = 0; i < 7; i++) {
+      final short = _dowShort[(todayIdx + i) % 7];
+      final slots = slotsByDay[short];
+      if (slots == null) continue; // day not on the timetable
+      final codes = <String>[
+        for (final slot in slots)
+          if (i > 0 ||
+              (_slotStartMin((slot['time'] ?? '').toString()) ?? 24 * 60) >
+                  nowMin)
+            (slot['code'] ?? '').toString(),
       ];
+      out.add({'day': i == 0 ? 'TODAY' : short, 'codes': codes});
+    }
+    return out;
+  }
 
   Map<String, int> _addsFor(int days) {
     final adds = <String, int>{};

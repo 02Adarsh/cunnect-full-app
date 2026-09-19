@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../services/api_client.dart';
 import '../../services/app_store.dart';
+import '../support_form_screen.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
 import '../../widgets/platform_video.dart';
@@ -81,7 +82,12 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
     if (!mounted) return;
     setState(() => _busy = false);
     if (data['error'] != null) {
-      setState(() => _error = data['error'] as String);
+      final legacyMsg = data['error'].toString();
+      setState(() => _error = legacyMsg);
+      if (legacyMsg.contains('other device') ||
+          legacyMsg.contains('another device')) {
+        _showDeviceWarning(legacyMsg);
+      }
       return;
     }
     if (data['registered'] == false) {
@@ -106,14 +112,19 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
     if (!mounted) return;
     setState(() => _busy = false);
     if (data['error'] != null) {
-      // naya captcha le aao (original har fail pe fresh captcha deta tha)
+      // fetch a new captcha (the original served a fresh captcha on every failure)
+      final msg = data['error'].toString();
       final d1 = await store.authLogin1(_uid.text);
       if (!mounted) return;
       setState(() {
-        _error = data['error'] as String;
+        _error = msg;
         if (d1['captcha'] != null) _captcha = d1['captcha'].toString();
         _captchaC.clear();
       });
+      // ⭐ v70: single-device rule — make the warning impossible to miss.
+      if (msg.contains('other device') || msg.contains('another device')) {
+        _showDeviceWarning(msg);
+      }
       return;
     }
     if (data['need_step3'] == true) {
@@ -325,7 +336,7 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // ⭐ background video (original login page jaisa) — with sound
+          // ⭐ background video (like the original login page) — with sound
           if (!_videoError)
             platformVideo(
                 '${ApiConfig.baseUrl}/static/images/login_background.mp4',
@@ -476,14 +487,23 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
           const SizedBox(height: 20),
           _button('LOGIN', _login2),
           const SizedBox(height: 14),
-          _link('← Back', () => _go('uid')),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _link('← Back', () => _go('uid')),
+              // ⭐ v58: real reset — emails a secure link to set a new
+              // password (replaces the old contact-us fallback).
+              _link('Forgot password?',
+                  () => openForgotPasswordSheet(context)),
+            ],
+          ),
           const SizedBox(height: 14),
         ];
       case 'reg':
         return [
           _field(_fullName, 'Full name', Icons.person_outline),
           const SizedBox(height: 14),
-          _field(_regUid, 'User ID (e.g. 25lbcs3056)', Icons.badge_outlined),
+          _field(_regUid, 'User ID', Icons.badge_outlined),
           const SizedBox(height: 14),
           _field(_regEmail, 'Email (@culkomail.in)', Icons.mail_outline,
               keyboard: TextInputType.emailAddress),
@@ -744,7 +764,7 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
         ],
       );
 
-/// ⭐ original login_step3.html wala grouped + searchable course picker
+/// ⭐ grouped + searchable course picker from the original login_step3.html
   static const Map<String, List<String>> _COURSE_GROUPS = {
     'Collaboration': [
       'B.Tech - CSE with AI & ML',
@@ -876,9 +896,46 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
     );
   }
 
+  /// ⭐ v70: the account is live on another phone — say it loudly.
+  void _showDeviceWarning(String message) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF141414),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(
+          children: const [
+            Icon(Icons.smartphone_rounded,
+                color: Color(0xFFFFD34D), size: 20),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text('Already signed in',
+                  style: TextStyle(color: Colors.white, fontSize: 16)),
+            ),
+          ],
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(
+              color: Color(0xFFB7B7BC), fontSize: 13, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK',
+                style: TextStyle(
+                    color: Color(0xFFF10B1D),
+                    fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+  }
+
 }
 
-/// ⭐ original login_step3.html jaisa searchable + grouped course dropdown
+/// ⭐ searchable + grouped course dropdown like the original login_step3.html
 class _CourseSearchDialog extends StatefulWidget {
   const _CourseSearchDialog();
   @override
@@ -986,4 +1043,6 @@ class _CourseSearchDialogState extends State<_CourseSearchDialog> {
       ),
     );
   }
+
+
 }

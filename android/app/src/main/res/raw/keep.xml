@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ⭐ R8/resource shrinker was treating the notification sound files as
+     unused and stripping them from the APK — that is why the notification
+     sound was silent. This keep rule always keeps them in the APK. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/cunnect_ping,@raw/cunnect_alert,@drawable/cu_notif" />

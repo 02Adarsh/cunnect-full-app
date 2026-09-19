@@ -32,11 +32,16 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AppStore>().refreshVendorDashboard();
+      final store = context.read<AppStore>();
+      store.refreshVendorDashboard();
+      store.loadVendorNotifications();
     });
-    // ⭐ har 15 sec orders poll — FCM block ho tab bhi near-realtime
+    // ⭐ orders poll every 15 sec — near-realtime even if FCM is blocked
     _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted) context.read<AppStore>().refreshVendorDashboard();
+      if (!mounted) return;
+      final store = context.read<AppStore>();
+      store.refreshVendorDashboard();
+      store.loadVendorNotifications();
     });
     if (widget.focusOrders) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -64,7 +69,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
     final active = store.vendorActiveOrders;
     final unread = store.unreadCountFor(AppStore.vendorUserId);
 
-    return ListView(
+    final body = ListView(
       padding: EdgeInsets.fromLTRB(12, 0, 12, 24 + MediaQuery.of(context).padding.bottom + 72),
       children: [
         _buildHeader(context, store, unread),
@@ -92,6 +97,14 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
         _historyPanel(store),
       ],
     );
+    // Inside the shell a Scaffold already exists; when pushed standalone
+    // (e.g. from the Delivery panel tabs) add one so text renders
+    // correctly (yellow-underline fix).
+    if (Scaffold.maybeOf(context) != null) return body;
+    return Scaffold(
+      backgroundColor: AppColors.page,
+      body: SafeArea(bottom: false, child: body),
+    );
   }
 
   Widget _buildHeader(BuildContext context, AppStore store, int unread) {
@@ -99,7 +112,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
       padding: const EdgeInsets.only(top: 8),
       child: Row(
         children: [
-          const CunnectBrand(fontSize: 24, suffix: 'VENDOR'),
+          const CunnectBrand(fontSize: 24),
           const SizedBox(width: 10),
           Expanded(
             child: SingleChildScrollView(
@@ -118,8 +131,8 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
           ),
           const SizedBox(width: 7),
           InkWell(
-            onTap: () => Navigator.of(context)
-                .push(MaterialPageRoute(builder: (_) => const NotificationsScreen())),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const NotificationsScreen(forVendor: true))),
             borderRadius: BorderRadius.circular(8),
             child: Container(
               width: 33,
@@ -220,9 +233,6 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
               children: [
                 Text(store.vendor.businessName,
                     style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w700, letterSpacing: -.7)),
-                const SizedBox(height: 5),
-                const Text('Here is what is happening with your store today.',
-                    style: TextStyle(color: AppColors.muted, fontSize: 12)),
               ],
             ),
           ),
@@ -240,7 +250,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                       side: const BorderSide(color: AppColors.line)),
-                  title: Text(opening ? 'Kitchen Open karein?' : 'Kitchen Off karein?',
+                  title: Text(opening ? 'Open the kitchen?' : 'Close the kitchen?',
                       style: const TextStyle(fontSize: 15)),
                   content: Text(
                     opening
@@ -758,7 +768,9 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(items[i].name,
+                                    DishNameWithMark(
+                                        name: items[i].name,
+                                        isVeg: items[i].isVeg,
                                         style: const TextStyle(
                                             fontSize: 11.5, fontWeight: FontWeight.w700)),
                                     const SizedBox(height: 3),

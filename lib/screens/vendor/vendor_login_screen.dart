@@ -2,11 +2,15 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../services/api_client.dart';
 import '../../services/app_store.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
+import '../admin/admin_login_screen.dart';
+import '../admin/admin_panel_screen.dart';
 import '../support_form_screen.dart';
 import 'vendor_shell.dart';
+import '../../widgets/platform_video.dart';
 
 /// Same centered glass card layout as vendor_login.html
 /// (background video replaced by the same dark + red glow gradient).
@@ -34,7 +38,16 @@ class _VendorLoginScreenState extends State<VendorLoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.black,
-      body: Container(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // ⭐ v53: same background video as the student login — muted,
+          // plays from the shared on-device cache (single download ever).
+          platformVideo(
+              '${ApiConfig.baseUrl}/static/images/login_background.mp4',
+              'vendor-login-bg-video',
+              true),
+          Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -180,10 +193,13 @@ class _VendorLoginScreenState extends State<VendorLoginScreen> {
                                 ],
                               ),
                             ),
-                            const Flexible(
-                              child: Text('Forgot password?',
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(color: Color(0xFFFF7F89), fontSize: 11.5)),
+                            Flexible(
+                              child: InkWell(
+                                onTap: () => openForgotPasswordSheet(context),
+                                child: const Text('Forgot password?',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(color: Color(0xFFFF7F89), fontSize: 11.5)),
+                              ),
                             ),
                           ],
                         ),
@@ -217,14 +233,51 @@ class _VendorLoginScreenState extends State<VendorLoginScreen> {
                             style: const TextStyle(color: Color(0xFF8F8F8F), fontSize: 11.5),
                           ),
                         ),
+                        const SizedBox(height: 13),
+                        // ⭐ Admin panel entry — same portal, separate login.
+                        Center(
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.of(context).push(MaterialPageRoute(
+                                  builder: (_) => ApiConfig.adminToken != null
+                                      ? const AdminPanelScreen()
+                                      : const AdminLoginScreen()));
+                            },
+                            borderRadius: BorderRadius.circular(99),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(99),
+                                border:
+                                    Border.all(color: const Color(0xFF333333)),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.admin_panel_settings_outlined,
+                                      size: 13, color: Color(0xFF9A9A9A)),
+                                  SizedBox(width: 5),
+                                  Text('Admin Panel',
+                                      style: TextStyle(
+                                          color: Color(0xFF9A9A9A),
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w700)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ),
               ),
+              ),
             ),
           ),
-        ),
+          ),
+        ],
       ),
     );
   }

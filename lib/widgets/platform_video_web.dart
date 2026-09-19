@@ -4,10 +4,10 @@ import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/material.dart';
 
-/// ⭐ Full-screen background video — HTML5. Video me sound hai to
-/// sound ke saath chalta hai; koi mute/unmute button nahi. Agar browser
-/// autoplay-with-sound block kare to ek baar tap karna padta hai
-/// (play button sirf tab dikhta hai).
+/// ⭐ Full-screen background video — HTML5. If the video has sound it
+/// plays with sound; no mute/unmute button. If the browser blocks
+/// autoplay-with-sound, a single tap is needed (the play button shows
+/// only in that case).
 Widget platformVideo(String url, String viewId, bool muted,
     {VoidCallback? onError}) {
   final el = html.VideoElement()
@@ -50,7 +50,7 @@ class _VideoWithSoundState extends State<_VideoWithSound> {
   @override
   void initState() {
     super.initState();
-    // Browser ne sound wala autoplay roka? -> play button dikhao.
+    // Did the browser block autoplay with sound? -> show the play button.
     Timer(const Duration(milliseconds: 900), () {
       if (!mounted) return;
       try {

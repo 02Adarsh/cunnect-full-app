@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
+import '../services/open_url.dart';
 import '../theme/app_colors.dart';
 
 /// The premium CUnnect wordmark used on every page
@@ -16,14 +18,14 @@ class CunnectWordmark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ⭐ naya image logo — text overlap glitch hamesha ke liye gayab
+    // ⭐ new image logo — the text overlap glitch is gone for good
     return Image.asset('assets/logo.png',
         height: fontSize * 1.15, fit: BoxFit.contain);
   }
 }
 
-/// Simple brand text — ⭐ ab purane app wale wordmark (glow wala) jaisa hi,
-/// taaki pure app me logo ekdam same dikhe.
+/// Simple brand text — ⭐ now matches the old app wordmark (with glow),
+/// so the logo looks identical across the whole app.
 class CunnectBrand extends StatelessWidget {
   final double fontSize;
   final String? suffix;
@@ -63,8 +65,8 @@ class CunnectHeader extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ⭐ Scaffold appBar ko status bar ke neeche khud rakhta hai —
-    // andar SafeArea lagane se content clip hota tha (mobile glitch).
+    // ⭐ Scaffold already places the appBar below the status bar —
+    // adding a SafeArea inside clipped the content (mobile glitch).
     return Container(
       height: 64,
       decoration: const BoxDecoration(
@@ -280,7 +282,7 @@ class DashedCouponCode extends StatelessWidget {
 }
 
 /// Network image with the same dark placeholder as the Django templates.
-/// Backend media URLs se load hota hai; fail hone par subtle placeholder.
+/// Loads from backend media URLs; a subtle placeholder on failure.
 class CunnectImage extends StatelessWidget {
   final String url;
   final double? width;
@@ -364,6 +366,217 @@ class CunnectWordmarkClassic extends StatelessWidget {
         letterSpacing: letterSpacing,
         height: 1,
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------
+// ⭐ Standard VEG / NON-VEG mark — white square + green/red border +
+// filled circle. Keep `size` EQUAL to the dish-name fontSize so the
+// mark reads like the next word of the name.
+// ---------------------------------------------------------------------
+class VegMark extends StatelessWidget {
+  final bool isVeg;
+  final double size;
+
+  const VegMark({super.key, required this.isVeg, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isVeg ? const Color(0xFF0F8A3C) : const Color(0xFFD32F2F);
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(size * 0.18),
+        border: Border.all(color: color, width: size * 0.11),
+      ),
+      alignment: Alignment.center,
+      child: Container(
+        width: size * 0.46,
+        height: size * 0.46,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+    );
+  }
+}
+
+/// Dish name + inline VegMark — the mark is exactly font-sized and sits
+/// right after the name like the "next word".
+class DishNameWithMark extends StatelessWidget {
+  final String name;
+  final bool isVeg;
+  final TextStyle style;
+  final int maxLines;
+
+  const DishNameWithMark({
+    super.key,
+    required this.name,
+    required this.isVeg,
+    required this.style,
+    this.maxLines = 1,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final markSize = style.fontSize ?? 13;
+    return Text.rich(
+      TextSpan(children: [
+        TextSpan(text: name, style: style),
+        const WidgetSpan(child: SizedBox(width: 6)),
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: VegMark(isVeg: isVeg, size: markSize),
+        ),
+      ]),
+      maxLines: maxLines,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+/// ⭐ v60: concise bullet-point payment instructions — shown below the QR
+/// and UPI ID in EVERY payment section (food checkout, printout, hostel).
+class PaymentSteps extends StatelessWidget {
+  final String actionLabel; // e.g. 'Place Order' / 'Send Print Request'
+
+  const PaymentSteps({super.key, this.actionLabel = 'Place Order'});
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = [
+      'Scan the QR / copy UPI ID and make the payment',
+      'Copy and paste the transaction ID from your UPI app',
+      'Tap $actionLabel',
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final s in steps)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 1),
+                  child: Text('•',
+                      style: TextStyle(
+                          color: Color(0xFFFFABB2),
+                          fontSize: 11,
+                          height: 1.45,
+                          fontWeight: FontWeight.w800)),
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(s,
+                      style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 10.5,
+                          height: 1.45)),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+}
+
+/// ⭐ v72: plain text in which every web link is painted in CUnnect RED
+/// and opens straight away when tapped (share any link on the feed).
+class LinkText extends StatefulWidget {
+  final String text;
+  final TextStyle style;
+  final Color linkColor;
+  final int maxLines;
+
+  const LinkText(
+    this.text, {
+    super.key,
+    this.style = const TextStyle(color: Color(0xFFBBBBBB), fontSize: 12),
+    this.linkColor = const Color(0xFFF10B1D),
+    this.maxLines = 200,
+  });
+
+  static final RegExp _link =
+      RegExp(r'((?:https?://|www\.)[^\s<>\[\]{}]+)', caseSensitive: false);
+
+  /// Trailing punctuation belongs to the sentence, not to the link.
+  static String _trim(String url) {
+    var u = url;
+    while (u.isNotEmpty && '.,;:!?)]}'.contains(u[u.length - 1])) {
+      u = u.substring(0, u.length - 1);
+    }
+    return u;
+  }
+
+  @override
+  State<LinkText> createState() => _LinkTextState();
+}
+
+class _LinkTextState extends State<LinkText> {
+  final List<TapGestureRecognizer> _taps = [];
+
+  List<InlineSpan> _spans(BuildContext context) {
+    final text = widget.text;
+    final base = widget.style;
+    final color = widget.linkColor;
+    final out = <InlineSpan>[];
+    var cursor = 0;
+    for (final m in LinkText._link.allMatches(text)) {
+      if (m.start > cursor) {
+        out.add(TextSpan(text: text.substring(cursor, m.start)));
+      }
+      final raw = m.group(0)!;
+      final url = LinkText._trim(raw);
+      if (url.isEmpty) continue;
+      final tap = TapGestureRecognizer()
+        ..onTap = () async {
+          final target = url.startsWith('www.') ? 'https://$url' : url;
+          final err = await openExternalUrl(target);
+          if (err != null && context.mounted) {
+            showCunnectToast(context, err, error: true);
+          }
+        };
+      _taps.add(tap);
+      out.add(TextSpan(
+        text: url,
+        style: base.copyWith(
+            color: color,
+            decoration: TextDecoration.underline,
+            decorationColor: color,
+            fontWeight: FontWeight.w700),
+        recognizer: tap,
+      ));
+      if (raw.length > url.length) {
+        out.add(TextSpan(text: raw.substring(url.length)));
+      }
+      cursor = m.end;
+    }
+    if (cursor < text.length) out.add(TextSpan(text: text.substring(cursor)));
+    if (out.isEmpty) out.add(TextSpan(text: text));
+    return out;
+  }
+
+  @override
+  void dispose() {
+    for (final t in _taps) {
+      t.dispose();
+    }
+    _taps.clear();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final max = widget.maxLines;
+    return Text.rich(
+      TextSpan(style: widget.style, children: _spans(context)),
+      maxLines: max,
+      overflow: max > 100 ? TextOverflow.clip : TextOverflow.ellipsis,
     );
   }
 }

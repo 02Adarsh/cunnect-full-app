@@ -8,7 +8,7 @@ import '../../services/app_store.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
 
-/// my_print_orders.html jaisa — student ke print orders, 5s live poll.
+/// Like my_print_orders.html — the student's print orders, 5s live poll.
 class MyPrintOrdersScreen extends StatefulWidget {
   final bool justPlaced;
 

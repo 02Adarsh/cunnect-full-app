@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -5,8 +7,10 @@ import 'local_store.dart';
 
 const _ch = MethodChannel('cunnect/autostart');
 
-/// ⭐ Ek baar Autostart/battery permission prompt — instant notifications
+/// ⭐ One-time Autostart/battery permission prompt — instant notifications
+/// ⭐ v63: Android-only (OEM autostart menus don't exist on iOS/web).
 Future<void> promptAutostartOnce(BuildContext context) async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
   if (LocalStore.get('autostart_asked') == '1') return;
   LocalStore.set('autostart_asked', '1');
   try {

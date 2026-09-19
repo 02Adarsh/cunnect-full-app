@@ -30,6 +30,7 @@ class _VendorItemFormScreenState extends State<VendorItemFormScreen> {
     'wrap', 'burger', 'dosa', 'pasta', 'bowl', 'dessert', 'pizza', 'other',
   ];
   late bool _isAvailable;
+  late bool _isVeg;
   String? _error;
   Uint8List? _photoBytes;
   String _photoName = '';
@@ -47,6 +48,7 @@ class _VendorItemFormScreenState extends State<VendorItemFormScreen> {
         ? widget.item!.category
         : 'wrap';
     _isAvailable = widget.item?.isAvailable ?? true;
+    _isVeg = widget.item?.isVeg ?? true;
     _stockController = TextEditingController(
         text: (widget.item?.stock ?? 0) > 0
             ? (widget.item?.stock ?? 0).toString()
@@ -136,7 +138,7 @@ class _VendorItemFormScreenState extends State<VendorItemFormScreen> {
             decoration: cunnectInputDecoration(placeholder: 'e.g. 120'),
           ),
           const SizedBox(height: 16),
-          _label('Stock (kitne bache — khali = unlimited)'),
+          _label('Stock (leave empty for unlimited)'),
           TextField(
             controller: _stockController,
             keyboardType: TextInputType.number,
@@ -170,6 +172,21 @@ class _VendorItemFormScreenState extends State<VendorItemFormScreen> {
                 onChanged: (value) => setState(() => _category = value ?? 'wrap'),
               ),
             ),
+          ),
+          const SizedBox(height: 16),
+          _label('Food Type'),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: const Color(0xFF373737)),
+            ),
+            child: Row(children: [
+              _vegChoice(true, 'VEG'),
+              const SizedBox(width: 4),
+              _vegChoice(false, 'NON-VEG'),
+            ]),
           ),
           const SizedBox(height: 16),
           _label('Description'),
@@ -225,6 +242,42 @@ class _VendorItemFormScreenState extends State<VendorItemFormScreen> {
       ),);
   }
 
+  /// ⭐ VEG / NON-VEG segmented choice — standard mark ke saath.
+  Widget _vegChoice(bool veg, String label) {
+    final selected = _isVeg == veg;
+    final color = veg ? const Color(0xFF0F8A3C) : const Color(0xFFD32F2F);
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => setState(() => _isVeg = veg),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          decoration: BoxDecoration(
+            color: selected ? color.withOpacity(0.14) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+                color: selected ? color.withOpacity(0.65) : Colors.transparent),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              VegMark(isVeg: veg, size: 12),
+              const SizedBox(width: 6),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: .5,
+                      color: selected
+                          ? const Color(0xFFF2F2F2)
+                          : const Color(0xFF8F8F8F))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _label(String text) => Padding(
         padding: const EdgeInsets.only(bottom: 7),
         child: Text(text,
@@ -263,6 +316,7 @@ class _VendorItemFormScreenState extends State<VendorItemFormScreen> {
           description: _descriptionController.text.trim(),
           category: _category,
           isAvailable: _isAvailable,
+          isVeg: _isVeg,
           stock: int.tryParse(_stockController.text.trim()) ?? 0,
         );
     if (!mounted) return;

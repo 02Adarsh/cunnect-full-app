@@ -1,5 +1,5 @@
 /// Data models — Flutter mirror of the Django models.
-/// Har model `fromJson` ke saath aata hai jo `/api/...` responses parse karta hai.
+/// Every model ships with a `fromJson` that parses `/api/...` responses.
 
 // ---------------------------------------------------------------------
 // Food app
@@ -16,6 +16,7 @@ class FoodItem {
   final String vendorName;
   final String vendorLogo;
   bool isAvailable;
+  final bool isVeg;
   final int stock;
 
   FoodItem({
@@ -29,10 +30,11 @@ class FoodItem {
     required this.vendorName,
     required this.vendorLogo,
     required this.isAvailable,
+    this.isVeg = true,
     required this.stock,
   });
 
-  /// Purani screens `item.image` use karti thi — ab URL hai.
+  /// Older screens used `item.image` — it is a URL now.
   String get image => imageUrl;
 
   factory FoodItem.fromJson(Map<String, dynamic> json, String Function(String) media) {
@@ -47,6 +49,7 @@ class FoodItem {
       vendorName: (json['vendor_name'] ?? '') as String,
       vendorLogo: (json['vendor_logo'] ?? '') as String,
       isAvailable: (json['is_available'] ?? false) as bool,
+      isVeg: (json['is_veg'] ?? true) as bool,
       stock: (json['stock'] ?? 0) as int,
     );
   }
@@ -174,13 +177,13 @@ OrderStatus parseOrderStatus(String? raw) {
 }
 
 extension OrderStatusX on OrderStatus {
-  /// Customer-facing copy — Django my_orders.html wale messages jaise.
+  /// Customer-facing copy — same messages as Django my_orders.html.
   String get customerCopy {
     switch (this) {
       case OrderStatus.pending:
         return 'Waiting for the kitchen to accept';
       case OrderStatus.accepted:
-        return 'Kitchen ne order accept kar liya';
+        return 'Order accepted by the kitchen';
       case OrderStatus.rejected:
         return 'Order rejected by the kitchen';
       case OrderStatus.preparing:
@@ -364,14 +367,25 @@ class DashboardBanner {
   final int id;
   final String title;
   final String imageUrl;
+  // ⭐ v61: banners can be videos too
+  final String videoUrl;
+  final bool isVideo;
 
-  DashboardBanner({required this.id, required this.title, required this.imageUrl});
+  DashboardBanner(
+      {required this.id,
+      required this.title,
+      required this.imageUrl,
+      this.videoUrl = '',
+      this.isVideo = false});
 
   factory DashboardBanner.fromJson(Map<String, dynamic> json, String Function(String) media) {
+    final rawVideo = (json['video_url'] ?? '') as String;
     return DashboardBanner(
       id: (json['id'] ?? 0) as int,
       title: (json['title'] ?? '') as String,
       imageUrl: media((json['image_url'] ?? '') as String),
+      videoUrl: rawVideo.isEmpty ? '' : media(rawVideo),
+      isVideo: (json['is_video'] ?? false) as bool,
     );
   }
 }
@@ -490,8 +504,8 @@ class ChatRoom {
   final bool isMember;
   final bool pending;
 
-  /// Messages room kholne par load hote hain; loaded flag se pata chalta hai
-  /// ki first fetch ho chuka hai (reload par dubara spinner na dikhe).
+  /// Messages load when the room is opened; the loaded flag tells us the
+  /// first fetch is done (no repeated spinner on reload).
   bool loaded;
   final List<ChatMessage> messages;
   ChatPoll? activePoll;
@@ -534,6 +548,9 @@ class PrintVendor {
   final String phone;
   final double bwPricePerPage;
   final double colorPricePerPage;
+  final String upiId;
+  // ⭐ v55: vendor has an uploaded QR image (works without a UPI ID).
+  final bool hasQr;
 
   PrintVendor({
     required this.id,
@@ -541,6 +558,8 @@ class PrintVendor {
     required this.phone,
     required this.bwPricePerPage,
     required this.colorPricePerPage,
+    this.upiId = '',
+    this.hasQr = false,
   });
 
   factory PrintVendor.fromJson(Map<String, dynamic> json) {
@@ -550,6 +569,8 @@ class PrintVendor {
       phone: (json['phone'] ?? '') as String,
       bwPricePerPage: ((json['bw_price_per_page'] ?? 0) as num).toDouble(),
       colorPricePerPage: ((json['color_price_per_page'] ?? 0) as num).toDouble(),
+      upiId: (json['upi_id'] ?? '') as String,
+      hasQr: (json['has_qr'] ?? false) as bool,
     );
   }
 }
@@ -598,6 +619,7 @@ class PrintOrder {
   final String vendorName;
   final String fileName;
   final String fileUrl;
+  final int pages;
   final int copies;
   final String printSide;
   final int bwPages;
@@ -605,6 +627,11 @@ class PrintOrder {
   final String bwPageRanges;
   final String colorPageRanges;
   final String note;
+  final String txnId;
+  final String txnLast4;
+  final String studentName;
+  final String studentUid;
+  final String studentPhone;
   final PrintOrderStatus status;
   final double totalPrice;
   final DateTime createdAt;
@@ -615,6 +642,7 @@ class PrintOrder {
     required this.vendorName,
     required this.fileName,
     required this.fileUrl,
+    this.pages = 0,
     required this.copies,
     required this.printSide,
     required this.bwPages,
@@ -622,6 +650,11 @@ class PrintOrder {
     required this.bwPageRanges,
     required this.colorPageRanges,
     required this.note,
+    this.txnId = '',
+    this.txnLast4 = '',
+    this.studentName = '',
+    this.studentUid = '',
+    this.studentPhone = '',
     required this.status,
     required this.totalPrice,
     required this.createdAt,
@@ -634,6 +667,7 @@ class PrintOrder {
       vendorName: (json['vendor_name'] ?? '') as String,
       fileName: (json['file_name'] ?? '') as String,
       fileUrl: media((json['file_url'] ?? '') as String),
+      pages: (json['pages'] ?? 0) as int,
       copies: (json['copies'] ?? 1) as int,
       printSide: (json['print_side'] ?? 'single') as String,
       bwPages: (json['bw_pages'] ?? 0) as int,
@@ -641,8 +675,198 @@ class PrintOrder {
       bwPageRanges: (json['bw_page_ranges'] ?? '') as String,
       colorPageRanges: (json['color_page_ranges'] ?? '') as String,
       note: (json['notes'] ?? '') as String,
+      txnId: (json['txn_id'] ?? '') as String,
+      txnLast4: (json['txn_last4'] ?? '') as String,
+      studentName: (json['student_name'] ?? '') as String,
+      studentUid: (json['student_uid'] ?? '') as String,
+      studentPhone: (json['student_phone'] ?? '') as String,
       status: parsePrintStatus(json['status'] as String?),
       totalPrice: ((json['total_price'] ?? 0) as num).toDouble(),
+      createdAt: DateTime.tryParse((json['created_at_iso'] ?? '') as String) ??
+          DateTime.now(),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------
+// ⭐ Notice board + App Polls (come from backend/admin)
+// ---------------------------------------------------------------------
+
+class CampusNotice {
+  final int id;
+  final String title;
+  final String message;
+  final String imageUrl;
+  final String videoUrl;
+  final bool pinned;
+  final DateTime createdAt;
+  FeedSocial social;
+
+  CampusNotice({
+    required this.id,
+    required this.title,
+    required this.message,
+    required this.imageUrl,
+    this.videoUrl = '',
+    this.pinned = false,
+    required this.createdAt,
+    this.social = const FeedSocial(),
+  });
+
+  factory CampusNotice.fromJson(
+      Map<String, dynamic> json, String Function(String) media) {
+    return CampusNotice(
+      id: (json['id'] ?? 0) as int,
+      title: (json['title'] ?? '') as String,
+      message: (json['message'] ?? '') as String,
+      imageUrl: media((json['image_url'] ?? '') as String),
+      videoUrl: media((json['video_url'] ?? '') as String),
+      pinned: (json['pinned'] ?? false) as bool,
+      createdAt: DateTime.tryParse((json['created_at_iso'] ?? '') as String) ??
+          DateTime.now(),
+      social: FeedSocial.fromJson(json),
+    );
+  }
+}
+
+class AppPollOptionModel {
+  final int id;
+  final String text;
+  final String imageUrl;
+  final int votes;
+
+  AppPollOptionModel({
+    required this.id,
+    required this.text,
+    required this.imageUrl,
+    required this.votes,
+  });
+
+  factory AppPollOptionModel.fromJson(
+      Map<String, dynamic> json, String Function(String) media) {
+    return AppPollOptionModel(
+      id: (json['id'] ?? 0) as int,
+      text: (json['text'] ?? '') as String,
+      imageUrl: media((json['image_url'] ?? '') as String),
+      votes: (json['votes'] ?? 0) as int,
+    );
+  }
+}
+
+class AppPollModel {
+  final int id;
+  final String question;
+  final String imageUrl;
+  final String videoUrl;
+  final bool pinned;
+  final int totalVotes;
+  final int? myOptionId;
+  final List<AppPollOptionModel> options;
+  final DateTime createdAt;
+  FeedSocial social;
+
+  AppPollModel({
+    required this.id,
+    required this.question,
+    required this.imageUrl,
+    this.videoUrl = '',
+    this.pinned = false,
+    required this.totalVotes,
+    required this.myOptionId,
+    required this.options,
+    required this.createdAt,
+    this.social = const FeedSocial(),
+  });
+
+  factory AppPollModel.fromJson(
+      Map<String, dynamic> json, String Function(String) media) {
+    return AppPollModel(
+      id: (json['id'] ?? 0) as int,
+      question: (json['question'] ?? '') as String,
+      imageUrl: media((json['image_url'] ?? '') as String),
+      videoUrl: media((json['video_url'] ?? '') as String),
+      pinned: (json['pinned'] ?? false) as bool,
+      totalVotes: (json['total_votes'] ?? 0) as int,
+      myOptionId: json['my_option_id'] as int?,
+      options: [
+        for (final o in (json['options'] as List? ?? []))
+          AppPollOptionModel.fromJson(o as Map<String, dynamic>, media),
+      ],
+      createdAt: DateTime.tryParse((json['created_at_iso'] ?? '') as String) ??
+          DateTime.now(),
+      social: FeedSocial.fromJson(json),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------
+// ⭐ CUnnect Feed — reactions + comments (Facebook-style social layer)
+// ---------------------------------------------------------------------
+
+class FeedSocial {
+  final Map<String, int> reactions; // emoji -> count
+  final String myReaction;          // '' = none
+  final int commentCount;
+
+  const FeedSocial({
+    this.reactions = const {},
+    this.myReaction = '',
+    this.commentCount = 0,
+  });
+
+  int get totalReactions =>
+      reactions.values.fold(0, (sum, c) => sum + c);
+
+  factory FeedSocial.fromJson(Map<String, dynamic> json) {
+    final raw = (json['reactions'] as Map?) ?? {};
+    return FeedSocial(
+      reactions: {
+        for (final e in raw.entries) '${e.key}': (e.value as num).toInt(),
+      },
+      myReaction: (json['my_reaction'] ?? '') as String,
+      commentCount: (json['comment_count'] ?? 0) as int,
+    );
+  }
+}
+
+class FeedCommentModel {
+  final int id;
+  final String user;
+  final bool mine;
+  final String text;
+  final Map<String, int> reactions; // emoji -> count
+  final String myReaction;          // '' = none
+  final List<FeedCommentModel> replies;
+  final DateTime createdAt;
+
+  FeedCommentModel({
+    required this.id,
+    required this.user,
+    required this.mine,
+    required this.text,
+    this.reactions = const {},
+    this.myReaction = '',
+    this.replies = const [],
+    required this.createdAt,
+  });
+
+  int get totalReactions => reactions.values.fold(0, (sum, c) => sum + c);
+
+  factory FeedCommentModel.fromJson(Map<String, dynamic> json) {
+    final raw = (json['reactions'] as Map?) ?? {};
+    return FeedCommentModel(
+      id: (json['id'] ?? 0) as int,
+      user: (json['user'] ?? '') as String,
+      mine: (json['mine'] ?? false) as bool,
+      text: (json['text'] ?? '') as String,
+      reactions: {
+        for (final e in raw.entries) '${e.key}': (e.value as num).toInt(),
+      },
+      myReaction: (json['my_reaction'] ?? '') as String,
+      replies: [
+        for (final r in (json['replies'] as List? ?? []))
+          FeedCommentModel.fromJson(r as Map<String, dynamic>),
+      ],
       createdAt: DateTime.tryParse((json['created_at_iso'] ?? '') as String) ??
           DateTime.now(),
     );

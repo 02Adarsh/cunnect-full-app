@@ -23,6 +23,8 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
   TextEditingController? _nameController;
   TextEditingController? _phoneController;
   TextEditingController? _upiController;
+  // ⭐ v61: vendors control their storefront description themselves
+  TextEditingController? _descController;
   bool _upiLoaded = false;
   String _qrUrl = '';
 
@@ -34,12 +36,20 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
       _nameController = TextEditingController(text: vendor.businessName);
       _phoneController = TextEditingController(text: vendor.phone);
       _upiController = TextEditingController();
+      _descController = TextEditingController();
       context.read<AppStore>().fetchVendorUpiInfo().then((info) {
         if (mounted) {
           setState(() {
             _upiController?.text = (info['upi_id'] ?? '') as String;
             _qrUrl = (info['qr_url'] ?? '') as String;
             _upiLoaded = true;
+          });
+        }
+      });
+      context.read<AppStore>().vendorStoreSettings().then((info) {
+        if (mounted && info['error'] == null) {
+          setState(() {
+            _descController?.text = (info['store_description'] ?? '') as String;
           });
         }
       });
@@ -51,6 +61,7 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
     _nameController?.dispose();
     _phoneController?.dispose();
     _upiController?.dispose();
+    _descController?.dispose();
     super.dispose();
   }
 
@@ -128,7 +139,7 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
     final store = context.watch<AppStore>();
     final vendor = store.vendor;
 
-    return Column(
+    final body = Column(
       children: [
         if (!widget.inShell)
           Padding(
@@ -178,9 +189,12 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
                               error: err != null);
                         },
                         style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.red),
+                            backgroundColor: AppColors.red,
+                            foregroundColor: Colors.white),
                         child: const Text('Save UPI',
-                            style: TextStyle(fontWeight: FontWeight.w800)),
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800)),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -339,6 +353,17 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
                             decoration: cunnectInputDecoration(placeholder: 'Enter mobile number'),
                           ),
                           const SizedBox(height: 14),
+                          // ⭐ v61: storefront description — shown to students
+                          _label('Storefront Description'),
+                          TextField(
+                            controller: _descController,
+                            maxLines: 3,
+                            style: const TextStyle(fontSize: 13, height: 1.45),
+                            decoration: cunnectInputDecoration(
+                                placeholder:
+                                    'A short line students see on your store page'),
+                          ),
+                          const SizedBox(height: 14),
                           _label('User ID'),
                           _readOnly(store.vendor.ownerUsername),
                           const SizedBox(height: 14),
@@ -350,12 +375,20 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
-                              onPressed: () {
-                                store.saveVendorProfile(
+                              onPressed: () async {
+                                final err = await store.saveVendorProfile(
                                   businessName: _nameController!.text.trim(),
                                   phone: _phoneController!.text.trim(),
                                 );
-                                showCunnectToast(context, 'Profile saved successfully.');
+                                // ⭐ v61: persist storefront description too
+                                await store.vendorStoreSettings(save: {
+                                  'store_description':
+                                      _descController!.text.trim(),
+                                });
+                                if (!mounted) return;
+                                showCunnectToast(context,
+                                    err ?? 'Profile saved successfully.',
+                                    error: err != null);
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.red,
@@ -429,6 +462,13 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
           ),
         ),
       ],
+    );
+    // When pushed standalone (outside the shell) the screen needs its own
+    // Scaffold, otherwise text renders with the yellow-underline glitch.
+    if (widget.inShell) return body;
+    return Scaffold(
+      backgroundColor: AppColors.page,
+      body: SafeArea(bottom: false, child: body),
     );
   }
 

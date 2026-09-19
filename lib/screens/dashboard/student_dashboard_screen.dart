@@ -5,20 +5,23 @@ import 'package:provider/provider.dart';
 
 import '../../models/models.dart' show DashboardBanner;
 import '../../services/api_client.dart';
+import '../../widgets/feed_video.dart';
 import '../../services/app_store.dart';
+import '../ride/ride_home_screen.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
 import '../auth/student_login_screen.dart';
-import '../chat/chat_home_screen.dart';
-import '../chat/chat_under_construction_screen.dart';
 import '../customer/food_home_screen.dart';
+import '../notices/notice_board_screen.dart';
 import '../customer/my_orders_screen.dart';
 import '../store/store_home_screen.dart';
 import '../ums/ums_login_screen.dart';
 import '../ums/ums_dashboard_screen.dart';
+import '../legal_screen.dart';
 import '../support_form_screen.dart';
 import '../vendor/vendor_login_screen.dart';
 import '../vendor/vendor_shell.dart';
+import '../../widgets/broadcast_card.dart';
 
 /// Student dashboard hub — same structure as templates/dashboard.html:
 /// logo header, greeting, banner slider, floating bottom nav,
@@ -30,11 +33,11 @@ class StudentDashboardScreen extends StatefulWidget {
   State<StudentDashboardScreen> createState() => _StudentDashboardScreenState();
 }
 
-class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
+class _StudentDashboardScreenState extends State<StudentDashboardScreen>
+    with WidgetsBindingObserver {
   final _pageController = PageController();
   int _currentBanner = 0;
   Timer? _notifTimer;
-  final Set<int> _shownNotif = {};
 
   @override
   void initState() {
@@ -43,30 +46,37 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       context.read<AppStore>()
         ..loadDashboardBanners()
         ..loadNotifications()
+        ..loadStoreSections() // ⭐ v60: admin flags for Food/Store entries
         ..umsAutoScrape();
+      // ⭐ v73: a tapped broadcast opens right here on the home page.
+      if (mounted) BroadcastCard.showIfPending(context);
     });
-    // ⭐ har 30 sec notifications poll — order accept/reject/delivery turant
+    WidgetsBinding.instance.addObserver(this);
+    // ⭐ notifications poll every 30 sec — order accept/reject/delivery instantly
     _notifTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted) context.read<AppStore>().loadNotifications();
     });
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // ⭐ v73: coming back from the notification tray also shows the card
+    if (state == AppLifecycleState.resumed && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) BroadcastCard.showIfPending(context);
+      });
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _notifTimer?.cancel();
     _pageController.dispose();
     super.dispose();
   }
 
-  void _maybeNotifToast(AppStore store) {
-    final fresh = store.notifications
-        .where((n) => !n.isRead && !_shownNotif.contains(n.id))
-        .toList();
-    if (fresh.isEmpty) return;
-    final latest = fresh.first;
-    _shownNotif.add(latest.id);
-    showCunnectToast(context, '${latest.title}: ${latest.message}');
-  }
+  // ⭐ the footer green toast (Order accepted etc.) was removed at the user's request.
 
   String _greeting() {
     final hour = DateTime.now().hour;
@@ -78,9 +88,20 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
+    // ⭐ Account disabled / session revoked -> return to login instantly.
+    if (store.studentSessionLost) {
+      store.studentSessionLost = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const StudentLoginScreen()),
+            (route) => false);
+        showCunnectToast(context,
+            'Your account has been disabled by the CUnnect team.',
+            error: true);
+      });
+    }
     final banners = store.dashboardBanners;
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => _maybeNotifToast(store));
 
     return Scaffold(
       backgroundColor: AppColors.black,
@@ -171,7 +192,18 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                                   onPageChanged: (i) => setState(() => _currentBanner = i),
                                   itemBuilder: (context, index) => GestureDetector(
                                     onTap: () => _openLightbox(banners[index]),
-                                    child: CunnectImage(banners[index].imageUrl, fit: BoxFit.contain),
+                                    // ⭐ v62: video banners autoplay muted;
+                                    // tapping them opens the fullscreen
+                                    // lightbox (tap goes to onTap, not
+                                    // play/pause).
+                                    child: banners[index].isVideo
+                                        ? feedVideo(banners[index].videoUrl,
+                                            autoplay: true,
+                                            muted: true,
+                                            onTap: () => _openLightbox(
+                                                banners[index]))
+                                        : CunnectImage(banners[index].imageUrl,
+                                            fit: BoxFit.contain),
                                   ),
                                 ),
                               ),
@@ -232,44 +264,112 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           width: double.infinity,
           constraints: const BoxConstraints(maxWidth: 420),
           margin: const EdgeInsets.symmetric(horizontal: 10),
-          padding: const EdgeInsets.all(12),
+          // ⭐ v70b: slightly slimmer side padding — every tile keeps
+          // more room for its label on small phones.
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           decoration: BoxDecoration(
             color: const Color(0xF2141414),
             borderRadius: BorderRadius.circular(25),
             border: Border.all(color: const Color(0x26FF0000)),
             boxShadow: [BoxShadow(color: Colors.black.withOpacity(.4), blurRadius: 20)],
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _navItem(Icons.school, 'UMS', () {
-                final store = context.read<AppStore>();
-                final logged = (store.umsUid ?? '').isNotEmpty;
-                Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => logged
-                        ? const UmsDashboardScreen()
-                        : const UmsLoginScreen()));
-              }),
-              _navItem(Icons.restaurant, 'Food', () {
-                Navigator.of(context)
-                    .push(MaterialPageRoute(builder: (_) => const FoodHomeScreen()));
-              }),
-              _navItem(Icons.shopping_bag, 'Store', () {
-                Navigator.of(context)
-                    .push(MaterialPageRoute(builder: (_) => const StoreHomeScreen()));
-              }),
-              _navItem(Icons.chat_bubble_outline, 'Chat', () {
-                Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const ChatUnderConstructionScreen()));
-              }),
-              _navItem(Icons.storefront, 'Partner', () {
-                // ⭐ vendor logged-in hai to dobara login nahi — seedha dashboard
-                Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => ApiConfig.vendorToken != null
-                        ? const VendorShell()
-                        : const VendorLoginScreen()));
-              }),
-            ],
+          child: LayoutBuilder(
+            builder: (context, box) {
+              // ⭐ v72: ALL SIX tiles fit on the screen
+              // (UMS · Food · Store · Feed · Ride · Partner). The bar is
+              // still swipeable, so on a very narrow phone the last
+              // icon is one small drag away instead of being squeezed.
+              final itemWidth = box.maxWidth / 6;
+              final items = <({IconData icon, String label, VoidCallback onTap})>[
+                (
+                  icon: Icons.school,
+                  label: 'UMS',
+                  onTap: () {
+                    final store = context.read<AppStore>();
+                    final logged = (store.umsUid ?? '').isNotEmpty;
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => logged
+                            ? const UmsDashboardScreen()
+                            : const UmsLoginScreen()));
+                  }
+                ),
+                (
+                  icon: Icons.restaurant,
+                  label: 'Food',
+                  onTap: () {
+                    // ⭐ v60: the Food Court section is admin-controlled.
+                    final food =
+                        context.read<AppStore>().builtinSections['food'];
+                    final active = (food?['is_active'] ?? true) as bool;
+                    final soon = (food?['coming_soon'] ?? false) as bool;
+                    if (!active || soon) {
+                      showCunnectToast(
+                          context,
+                          soon
+                              ? 'Food Court is coming soon on CUnnect.'
+                              : 'Food Court is currently unavailable.');
+                      return;
+                    }
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const FoodHomeScreen()));
+                  }
+                ),
+                (
+                  icon: Icons.shopping_bag,
+                  label: 'Store',
+                  onTap: () {
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const StoreHomeScreen()));
+                  }
+                ),
+                (
+                  icon: Icons.dynamic_feed_outlined,
+                  label: 'Feed',
+                  onTap: () {
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const CunnectFeedScreen()));
+                  }
+                ),
+                // ⭐ Ride — immediately to the LEFT of Partner.
+                (
+                  icon: Icons.local_taxi_rounded,
+                  label: 'Ride',
+                  onTap: () {
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const RideHomeScreen()));
+                  }
+                ),
+                (
+                  icon: Icons.storefront,
+                  label: 'Partner',
+                  onTap: () {
+                    // ⭐ if the vendor is logged in, skip the login —
+                    // go straight to their dashboard.
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => ApiConfig.vendorToken != null
+                            ? const VendorShell()
+                            : const VendorLoginScreen()));
+                  }
+                ),
+              ];
+              return ScrollConfiguration(
+                // no glow/overscroll chrome — the bar stays clean
+                behavior: const _NoGlowScroll(),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                    children: [
+                      for (final item in items)
+                        SizedBox(
+                          width: itemWidth,
+                          child: _navItem(item.icon, item.label, item.onTap),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -295,7 +395,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             color: Colors.transparent,
             child: Container(
               width: 330,
-              padding: const EdgeInsets.fromLTRB(18, 32, 18, 18),
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
               decoration: BoxDecoration(
                 color: const Color(0xFF161616),
                 borderRadius: BorderRadius.circular(20),
@@ -305,21 +405,23 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                 ],
               ),
               child: Stack(
-                clipBehavior: Clip.none,
                 children: [
+                  // ⭐ the cross is now INSIDE the Stack — when it sat outside
+                  // (negative offset) taps did not work (hit-test clip issue).
                   Positioned(
-                    top: -32,
-                    right: -18,
-                    child: GestureDetector(
+                    top: 0,
+                    right: 0,
+                    child: InkWell(
                       onTap: () => Navigator.of(context).pop(),
+                      borderRadius: BorderRadius.circular(99),
                       child: Container(
-                        width: 30,
-                        height: 30,
+                        width: 32,
+                        height: 32,
                         decoration: const BoxDecoration(
                             shape: BoxShape.circle, color: Color(0xFF373737)),
                         alignment: Alignment.center,
-                        child: const Text('×',
-                            style: TextStyle(color: Colors.white, fontSize: 20, height: 1)),
+                        child: const Icon(Icons.close,
+                            size: 17, color: Colors.white),
                       ),
                     ),
                   ),
@@ -370,11 +472,19 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                     Navigator.of(context).pop();
                     _openSupportForm();
                   }),
-                  _profileLink(Icons.chat_bubble_outline, 'Chat', () {
+                  // ⭐ v53: CUnnect Feed link removed from the profile
+                  // panel at the user's request (feed remains on the
+                  // dashboard nav).
+                  // ⭐ v52: in-app legal pages
+                  _profileLink(Icons.gavel_rounded, 'Terms & Conditions', () {
                     Navigator.of(context).pop();
-                    Navigator.of(context)
-                        .push(MaterialPageRoute(
-                        builder: (_) => const ChatUnderConstructionScreen()));
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const LegalScreen(initialTab: 0)));
+                  }),
+                  _profileLink(Icons.privacy_tip_outlined, 'Privacy Policy', () {
+                    Navigator.of(context).pop();
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const LegalScreen(initialTab: 1)));
                   }),
                   _profileLink(Icons.logout, 'Logout', () {
                     store.studentLogout();
@@ -435,7 +545,11 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       transitionDuration: const Duration(milliseconds: 200),
       pageBuilder: (context, animation, secondary) => Stack(
         children: [
-          Center(child: CunnectImage(banner.imageUrl, fit: BoxFit.contain)),
+          Center(
+              // ⭐ v62: fullscreen video plays WITH sound, tap = play/pause
+              child: banner.isVideo
+                  ? feedVideo(banner.videoUrl, autoplay: true)
+                  : CunnectImage(banner.imageUrl, fit: BoxFit.contain)),
           Positioned(
             top: 18,
             right: 18,
@@ -464,7 +578,19 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
 
 
 
-/// ⭐ tap pe icon turant RED hota hai, chhodte hi wapas — hover jaisa flash
+/// ⭐ v70: keeps the bottom bar's horizontal swipe free of the
+/// Android overscroll glow.
+class _NoGlowScroll extends ScrollBehavior {
+  const _NoGlowScroll();
+
+  @override
+  Widget buildOverscrollIndicator(
+          BuildContext context, Widget child, ScrollableDetails details) =>
+      child;
+}
+
+
+/// ⭐ the icon turns RED instantly on tap and reverts on release — a hover-like flash
 class _NavItemTile extends StatefulWidget {
   final IconData icon;
   final String label;
@@ -477,26 +603,90 @@ class _NavItemTile extends StatefulWidget {
 
 class _NavItemTileState extends State<_NavItemTile> {
   bool _pressed = false;
+  bool _moved = false;
+  Offset? _start;
+  Timer? _hold;
+
+  void _light() {
+    _hold?.cancel();
+    _hold = null;
+    if (!_pressed) setState(() => _pressed = true);
+  }
+
+  void _dim() {
+    _hold?.cancel();
+    if (!_pressed) {
+      _hold = null;
+      return;
+    }
+    // ⭐ hold the red for a beat so even the quickest tap is visible
+    // (the tap itself fires immediately - only the colour lingers).
+    _hold = Timer(const Duration(milliseconds: 90), () {
+      _hold = null;
+      if (mounted && _pressed) setState(() => _pressed = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _hold?.cancel();
+    super.dispose();
+  }
+
+  /// ⭐ v70b: the tile listens to RAW pointer events on purpose.
+  /// Inside the swipeable bar a GestureDetector's onTapDown only fires
+  /// once the gesture arena is settled — i.e. together with onTapUp —
+  /// so the red flash was never visible. Listener fires the instant
+  /// the finger lands, whatever the arena decides later.
   @override
   Widget build(BuildContext context) {
     final color =
         _pressed ? const Color(0xFFF10B1D) : const Color(0xFFDDDDDD);
-    return GestureDetector(
+    return Listener(
       behavior: HitTestBehavior.opaque,
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTapUp: (_) {
-        setState(() => _pressed = false);
-        widget.onTap();
+      onPointerDown: (e) {
+        _start = e.position;
+        _moved = false;
+        _light();
+      },
+      onPointerMove: (e) {
+        // scrolling the bar must NOT leave a tile stuck on red
+        if (_start != null && (e.position - _start!).distance > 10) {
+          _moved = true;
+          _dim();
+        }
+      },
+      onPointerUp: (_) {
+        final tapped = !_moved;
+        _moved = false;
+        _start = null;
+        _dim();
+        if (tapped) widget.onTap();
+      },
+      onPointerCancel: (_) {
+        _moved = false;
+        _start = null;
+        _dim();
       },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(widget.icon, size: 24, color: color),
             const SizedBox(height: 5),
-            Text(widget.label, style: TextStyle(color: color, fontSize: 12)),
+            // ⭐ v70b: the label NEVER wraps — on narrow phones it
+            // scales down instead of dropping a letter ("Partne/r").
+            SizedBox(
+              width: double.infinity,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(widget.label,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: TextStyle(color: color, fontSize: 12)),
+              ),
+            ),
           ],
         ),
       ),

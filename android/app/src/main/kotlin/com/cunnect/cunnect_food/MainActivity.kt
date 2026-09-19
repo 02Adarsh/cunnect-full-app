@@ -2,14 +2,98 @@ package com.cunnect.cunnect_food
 
 import android.content.ComponentName
 import android.content.Intent
+import android.os.Build
+import android.os.Bundle
+import android.view.WindowManager
+import android.widget.Toast
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val APK_NAME = "CUnnect-update.apk"
+
+    // ⭐ v63: cunnect:// deep link (password reset from email)
+    private var pendingLink: String? = null
+    private var linkChannel: MethodChannel? = null
+
+    // ⭐ v52: App-wide screenshot / screen-recording block.
+    // FLAG_SECURE makes every screen in the app impossible to capture
+    // (screenshots come out blocked, screen recorders show black, and
+    // the app preview is hidden in the recents switcher).
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
+        // ⭐ v63: app launched from a cunnect:// link (cold start)
+        intent?.dataString?.let { if (it.startsWith("cunnect://")) pendingLink = it }
+    }
+
+    // ⭐ v63: app was already running and a cunnect:// link arrived
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val url = intent.dataString ?: return
+        if (url.startsWith("cunnect://")) {
+            pendingLink = url
+            linkChannel?.invokeMethod("onLink", url)
+        }
+    }
+
+    // ⭐ Android 14+ reports every screenshot ATTEMPT — we show the
+    // custom CUnnect message on top of the OS block.
+    private var captureCallback: Any? = null
+
+    override fun onStart() {
+        super.onStart()
+        if (Build.VERSION.SDK_INT >= 34) {
+            try {
+                val cb = ScreenCaptureCallback {
+                    runOnUiThread {
+                        Toast.makeText(
+                            this,
+                            "The screen capture has been blocked by CUnnect team",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+                registerScreenCaptureCallback(mainExecutor, cb)
+                captureCallback = cb
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (Build.VERSION.SDK_INT >= 34) {
+            try {
+                (captureCallback as? ScreenCaptureCallback)?.let {
+                    unregisterScreenCaptureCallback(it)
+                }
+                captureCallback = null
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // ⭐ v63: deep-link channel — Flutter pulls the launch link and
+        // listens for links that arrive while the app is running.
+        linkChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger, "cunnect/deeplink"
+        ).also { ch ->
+            ch.setMethodCallHandler { call, result ->
+                if (call.method == "getInitialLink") {
+                    result.success(pendingLink)
+                    pendingLink = null
+                } else {
+                    result.notImplemented()
+                }
+            }
+        }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger, "cunnect/autostart"
         ).setMethodCallHandler { call, result ->
