@@ -150,6 +150,9 @@ void openForgotPasswordSheet(BuildContext context) {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ⭐ v76: the same CUnnect logo the rest of the app uses
+              const Center(child: CunnectWordmark(fontSize: 26)),
+              const SizedBox(height: 16),
               const Text('Forgot password?',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
               const SizedBox(height: 5),

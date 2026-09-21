@@ -7,6 +7,7 @@ import '../../models/models.dart' show DashboardBanner;
 import '../../services/api_client.dart';
 import '../../widgets/feed_video.dart';
 import '../../services/app_store.dart';
+import '../../services/app_portal.dart';
 import '../ride/ride_home_screen.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
@@ -42,6 +43,9 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
   @override
   void initState() {
     super.initState();
+    // ⭐ v75: back on the student side — rider / vendor pushes must not
+    // raise their popups or ring here.
+    ActivePortal.set(AppPortal.student);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppStore>()
         ..loadDashboardBanners()
@@ -307,7 +311,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                           context,
                           soon
                               ? 'Food Court is coming soon on CUnnect.'
-                              : 'Food Court is currently unavailable.');
+                              : 'CUnnect food is currently unavailable.');
                       return;
                     }
                     Navigator.of(context).push(MaterialPageRoute(

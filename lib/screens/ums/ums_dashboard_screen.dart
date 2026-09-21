@@ -3415,6 +3415,95 @@ class _CourseSheetState extends State<_CourseSheet> {
     return occ;
   }
 
+  /// ⭐ v76: every upcoming lecture of THIS subject (day + start time),
+  /// today's remaining slots first, then the rest of the week.
+  List<Map<String, dynamic>> _lectures() {
+    final code = _s(widget.course['code']).toUpperCase();
+    if (code.isEmpty) return const [];
+    final now = DateTime.now();
+    final nowMin = now.hour * 60 + now.minute;
+    final todayIdx = now.weekday % 7;
+    final out = <Map<String, dynamic>>[];
+    for (var i = 0; i < 7; i++) {
+      final short = _dow[(todayIdx + i) % 7];
+      final found = <Map<String, dynamic>>[];
+      for (final e in widget.timetable.entries) {
+        final day = _s(e.key).trim().toUpperCase();
+        if (day.length < 3 || day.substring(0, 3) != short) continue;
+        final slots = (e.value is Map ? e.value['slots'] : null);
+        if (slots is! List) continue;
+        for (final slot in slots) {
+          if (slot is! Map) continue;
+          if (_s(slot['code']).toUpperCase() != code) continue;
+          final st = _slotStartMin(_s(slot['time']));
+          if (i == 0 && st != null && st <= nowMin) continue;
+          found.add({
+            'day': i == 0 ? 'TODAY' : short,
+            'time': _s(slot['time']),
+            'min': st ?? 24 * 60,
+          });
+        }
+      }
+      found.sort((a, b) => (a['min'] as int).compareTo(b['min'] as int));
+      out.addAll(found);
+    }
+    return out;
+  }
+
+  /// ⭐ v76: one headline that follows the PLAN (the slider), not just
+  /// today's percentage — once the planned lectures take the subject to
+  /// 75% the "attend the next N" warning disappears.
+  Widget _planLine(int att, int tot) {
+    final k = _k.round();
+    final pa = att + k;
+    final pt = tot + k;
+    final pct = pt > 0 ? pa * 100.0 / pt : 0.0;
+    final low = pct < 75;
+    final need = (((0.75 * pt - pa) * 4) - 1e-9).ceil();
+    final miss = (((pa - 0.75 * pt) / 0.75) + 1e-9).floor();
+    final String head, bold, tail;
+    if (low) {
+      head = 'Attend the next ';
+      bold = '${need < 0 ? 0 : need}';
+      tail = need == 1 ? ' class to reach 75%.' : ' classes to reach 75%.';
+    } else if (miss > 0) {
+      head = 'You can miss ';
+      bold = '$miss';
+      tail = miss == 1
+          ? ' more class before dropping below 75%.'
+          : ' more classes before dropping below 75%.';
+    } else {
+      head = 'You are on the safe line — ';
+      bold = 'no buffer';
+      tail = ' left above 75%.';
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _mono(low ? 'RECOVERY REQUIRED' : 'SAFETY MARGIN', 9,
+            color: low ? _red : _muted, w: FontWeight.w800),
+        const SizedBox(height: 8),
+        Text.rich(TextSpan(children: [
+          TextSpan(
+              text: head,
+              style: const TextStyle(
+                  color: _soft, fontSize: 13, height: 1.6)),
+          TextSpan(
+              text: bold,
+              style: TextStyle(
+                  fontFamily: 'monospace',
+                  color: low ? _red : Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13)),
+          TextSpan(
+              text: tail,
+              style: const TextStyle(
+                  color: _soft, fontSize: 13, height: 1.6)),
+        ])),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.course;
@@ -3635,31 +3724,9 @@ class _CourseSheetState extends State<_CourseSheet> {
                   const SizedBox(height: 18),
                   // ── TAB: PREDICTION ──
                   if (_ctab == 'pred') ...[
-                    _mono(
-                        low ? 'RECOVERY REQUIRED' : 'SAFETY MARGIN', 9,
-                        color: low ? _red : _muted, w: FontWeight.w800),
-                    const SizedBox(height: 8),
-                    Text.rich(TextSpan(children: [
-                      TextSpan(
-                          text: low
-                              ? 'Attend the next '
-                              : 'You can miss ',
-                          style: const TextStyle(
-                              color: _soft, fontSize: 13, height: 1.6)),
-                      TextSpan(
-                          text: low ? '$need' : '$miss',
-                          style: TextStyle(
-                              fontFamily: 'monospace',
-                              color: low ? _red : Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13)),
-                      TextSpan(
-                          text: low
-                              ? ' classes to reach 75%.'
-                              : ' more classes before dropping below 75%.',
-                          style: const TextStyle(
-                              color: _soft, fontSize: 13, height: 1.6)),
-                    ])),
+                    // ⭐ v76: follows the plan — the warning disappears as
+                    // soon as the planned lectures reach 75%.
+                    _planLine(att, tot),
                     if (tot > 0 || att > 0)
                       _planner(att, tot, pct),
                     if (tot == 0 && att == 0)
@@ -3821,6 +3888,7 @@ class _CourseSheetState extends State<_CourseSheet> {
   /// ⭐ v7.1 Class planner — slider se projected % live + day chips.
   Widget _planner(int att, int tot, double curPct) {
     final occ = _occurrences();
+    final lec = _lectures();
     final maxK = occ.length;
     final k = _k.round() > maxK ? maxK : _k.round();
     final na = att + k;
@@ -3978,6 +4046,45 @@ class _CourseSheetState extends State<_CourseSheet> {
                   }),
               ],
             ),
+            // ⭐ v76: this subject's upcoming lectures — scroll sideways,
+            // tap one to plan "attend up to here" (the % updates itself).
+            if (lec.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              _mono('UPCOMING LECTURES', 9,
+                  color: _muted, w: FontWeight.w800),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 34,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: lec.length,
+                  itemBuilder: (_, i) {
+                    final l = lec[i];
+                    final on = _k.round() >= i + 1;
+                    final time = '${l['time']}'.trim();
+                    return GestureDetector(
+                      onTap: () => setState(() => _k = (i + 1).toDouble()),
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 9),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: on ? const Color(0x1AEC1C24) : null,
+                          border: Border.all(
+                              color: on ? const Color(0x4DEC1C24) : _hair),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: _mono(
+                            '${l['day']}${time.isEmpty ? '' : ' · $time'}',
+                            8.5,
+                            color: on ? Colors.white : _muted,
+                            w: FontWeight.w800),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           ],
           const SizedBox(height: 12),
           Text(
@@ -4141,6 +4248,8 @@ class _PredictSheet extends StatefulWidget {
 
 class _PredictSheetState extends State<_PredictSheet> {
   double _days = 0;
+  // ⭐ v76: 0 = next 7 days, 1 = next 30 days
+  bool _monthly = false;
 
   static const _red = Color(0xFFEC1C24);
   static const _hair = Color(0xFF242424);
@@ -4187,7 +4296,8 @@ class _PredictSheetState extends State<_PredictSheet> {
     final todayIdx = now.weekday % 7;
     final nowMin = now.hour * 60 + now.minute;
     final out = <Map<String, dynamic>>[];
-    for (var i = 0; i < 7; i++) {
+    // ⭐ v76: a full month of days is built (the sheet shows 7 or 30)
+    for (var i = 0; i < 30; i++) {
       final short = _dowShort[(todayIdx + i) % 7];
       final slots = slotsByDay[short];
       if (slots == null) continue; // day not on the timetable
@@ -4198,7 +4308,12 @@ class _PredictSheetState extends State<_PredictSheet> {
                   nowMin)
             (slot['code'] ?? '').toString(),
       ];
-      out.add({'day': i == 0 ? 'TODAY' : short, 'codes': codes});
+      out.add({
+        'day': i == 0 ? 'TODAY' : short,
+        'short': short,
+        'date': now.add(Duration(days: i)).day,
+        'codes': codes,
+      });
     }
     return out;
   }
@@ -4217,16 +4332,55 @@ class _PredictSheetState extends State<_PredictSheet> {
     return adds..putIfAbsent('__total__', () => total);
   }
 
+  /// ⭐ v76: 1 WEEK / 1 MONTH switch
+  Widget _seg(String label, bool on, VoidCallback tap) => GestureDetector(
+        onTap: tap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: on ? _red : Colors.transparent,
+            border: Border.all(color: on ? _red : _hair),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: _mono(label, 9,
+              color: on ? Colors.white : _muted, w: FontWeight.w800),
+        ),
+      );
+
+  /// ⭐ v76: one day chip — the monthly view adds the date to it.
+  Widget _dayChip(int i, List<Map<String, dynamic>> dl) {
+    final on = _days.round() >= i + 1;
+    final label =
+        _monthly ? '${dl[i]['short']} ${dl[i]['date']}' : '${dl[i]['day']}';
+    return GestureDetector(
+      onTap: () => setState(
+          () => _days = (_days.round() == i + 1) ? 0 : (i + 1).toDouble()),
+      child: Container(
+        margin: const EdgeInsets.only(right: 6, bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: on ? _reddimBg : null,
+          border: Border.all(color: on ? _red : _hair),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: _mono('$label · ${(dl[i]['codes'] as List).length}', 9,
+            color: on ? _red : _muted, w: FontWeight.w800),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final missed = (widget.held - widget.attended).round();
+    final dl = _dayList;
+    final maxDays = (_monthly ? 30 : 7) > dl.length ? dl.length : (_monthly ? 30 : 7);
+    if (_days.round() > maxDays) _days = maxDays.toDouble();
     final days = _days.round();
     final adds = _addsFor(days);
     final totalAdd = adds['__total__'] ?? 0;
     final predOverall = widget.held + totalAdd > 0
         ? (widget.attended + totalAdd) / (widget.held + totalAdd) * 100
         : 0.0;
-    final dl = _dayList;
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.82,
@@ -4258,6 +4412,22 @@ class _PredictSheetState extends State<_PredictSheet> {
                             color: Colors.white, fontSize: 18, height: 1)),
                   ),
                 ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 2, 20, 6),
+            child: Row(
+              children: [
+                _seg('1 WEEK', !_monthly, () => setState(() {
+                      _monthly = false;
+                      if (_days.round() > 7) _days = 7;
+                    })),
+                const SizedBox(width: 8),
+                _seg('1 MONTH', _monthly, () => setState(() => _monthly = true)),
+                const Spacer(),
+                _mono(_monthly ? 'NEXT 30 DAYS' : 'NEXT 7 DAYS', 8,
+                    color: _muted),
               ],
             ),
           ),
@@ -4312,42 +4482,30 @@ class _PredictSheetState extends State<_PredictSheet> {
                     trackHeight: 4,
                   ),
                   child: Slider(
-                    value: _days,
+                    value: _days.clamp(0, maxDays.toDouble()),
                     min: 0,
-                    max: 7,
-                    divisions: 7,
+                    max: maxDays.toDouble() < 1 ? 1 : maxDays.toDouble(),
+                    divisions: maxDays < 1 ? 1 : maxDays,
                     onChanged: (v) => setState(() => _days = v),
                   ),
                 ),
                 const SizedBox(height: 4),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (var i = 0; i < dl.length; i++)
-                      GestureDetector(
-                        onTap: () => setState(
-                            () => _days = (_days.round() == i + 1) ? 0 : (i + 1).toDouble()),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: _days.round() >= i + 1 ? _reddimBg : null,
-                            border: Border.all(
-                                color: _days.round() >= i + 1
-                                    ? _red
-                                    : _hair),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: _mono(
-                              '${dl[i]['day']} · ${(dl[i]['codes'] as List).length}',
-                              9,
-                              color: _days.round() >= i + 1 ? _red : _muted,
-                              w: FontWeight.w800),
+                _monthly
+                    ? SizedBox(
+                        height: 34,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: maxDays,
+                          itemBuilder: (_, i) => _dayChip(i, dl),
                         ),
+                      )
+                    : Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (var i = 0; i < maxDays; i++) _dayChip(i, dl),
+                        ],
                       ),
-                  ],
-                ),
                 const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,

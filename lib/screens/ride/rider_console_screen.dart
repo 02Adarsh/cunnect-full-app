@@ -6,13 +6,18 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
+import '../../services/app_portal.dart';
 import '../../services/app_store.dart';
 import '../../services/offline_tiles.dart';
+import '../../services/ride_events.dart';
+import '../../services/ring_service.dart';
 import '../../services/open_url_stub.dart'
     if (dart.library.html) '../../services/open_url_web.dart'
     if (dart.library.io) '../../services/open_url_mobile.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart' show showCunnectToast;
+import '../../widgets/ride_ui.dart';
+import 'ride_history_screen.dart';
 
 /// ⭐ v68: RIDE PARTNER console (vendor portal tab).
 ///
@@ -46,13 +51,34 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
   bool _loaded = false;
   bool _saving = false;
   String _gpsNote = '';
+  // ⭐ v75: the rider's own UPI id — the payment QR is built from it
+  final _upi = TextEditingController();
+  bool _upiSaving = false;
+
+  StreamSubscription<RideEvent>? _events;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    // ⭐ v75: this is the RIDE PARTNER portal — only rider pushes belong
+    // here (student ride popups and the OTP must stay in the student app).
+    ActivePortal.set(AppPortal.rider);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _load();
+      // ⭐ v74: an event that arrived while the app was closed (payment,
+      // cancellation, SOS) is shown the moment the console opens.
+      RideEvents.consumePending(context);
+    });
     // ⭐ real-time: new requests and ride status land without a Refresh.
     _poll = Timer.periodic(const Duration(seconds: 5), (_) => _silent());
+    // ⭐ v74: pushes refresh the console instantly and raise a popup.
+    _events = RideEvents.stream.listen((ev) {
+      if (!mounted) return;
+      context.read<AppStore>().loadRideConsole();
+      if (ev.kind != 'new_request' && ev.kind != 'accepted') {
+        RideEvents.show(context, ev);
+      }
+    });
   }
 
   Future<void> _load() async {
@@ -65,6 +91,12 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       _knownRequests.add('${(r as Map)['ride_code']}');
     }
     _firstLoadDone = true;
+    // ⭐ v75: without a UPI id the student cannot get a payment QR
+    try {
+      final upi = await store.fetchVendorUpi();
+      if (!mounted) return;
+      if (upi.isNotEmpty) _upi.text = upi;
+    } catch (_) {}
     final p = store.rideProfile;
     if (p != null) {
       _vehicleNo.text = '${p['vehicle_number'] ?? ''}';
@@ -118,6 +150,8 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       _knownRequests.add('${(r as Map)['ride_code']}');
     }
     _showRequestDialog(Map<String, dynamic>.from(fresh.first as Map));
+    // ⭐ v75: non-stop ring for 20 seconds on a new ride request.
+    RingService.ring(key: '${(fresh.first as Map)['ride_code']}');
   }
 
   void _showRequestDialog(Map<String, dynamic> r) {
@@ -159,6 +193,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
             onPressed: () {
               Navigator.of(ctx).pop();
               _requestDialogOpen = false;
+              RingService.stop();
               _act('reject', '${r['ride_code']}');
             },
             child: const Text('REJECT',
@@ -170,6 +205,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
             onPressed: () {
               Navigator.of(ctx).pop();
               _requestDialogOpen = false;
+              RingService.stop();
               _act('accept', '${r['ride_code']}');
             },
             child: const Text('ACCEPT',
@@ -248,6 +284,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
 
   @override
   void dispose() {
+    _events?.cancel();
     _poll?.cancel();
     _gps?.cancel();
     _otp.dispose();
@@ -260,6 +297,20 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       c.dispose();
     }
     super.dispose();
+  }
+
+  /// ⭐ v75: save the rider's UPI id (the payment QR is built from it).
+  Future<void> _saveUpi() async {
+    final v = _upi.text.trim();
+    if (v.isEmpty) {
+      showCunnectToast(context, 'Enter your UPI id first');
+      return;
+    }
+    setState(() => _upiSaving = true);
+    final err = await context.read<AppStore>().saveVendorUpi(v);
+    if (!mounted) return;
+    setState(() => _upiSaving = false);
+    showCunnectToast(context, err ?? 'UPI id saved — ride payments enabled');
   }
 
   Future<void> _save() async {
@@ -286,6 +337,8 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
   }
 
   Future<void> _act(String action, String code) async {
+    // ⭐ v75: accepting / rejecting stops the ring at once.
+    RingService.stop();
     final store = context.read<AppStore>();
     final err = await store.rideVendorAction(action, code);
     if (!mounted) return;
@@ -322,7 +375,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         backgroundColor: AppColors.page,
         appBar: AppBar(
@@ -341,9 +394,10 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
             labelColor: Colors.white,
             unselectedLabelColor: Color(0xFF7A7A7A),
             labelStyle: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
-            tabs: [
+            tabs: const [
               Tab(text: 'Requests'),
               Tab(text: 'My Ride'),
+              Tab(text: 'History'),
               Tab(text: 'Profile'),
             ],
           ),
@@ -352,6 +406,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
           children: [
             _requestsTab(store),
             _activeTab(store),
+            const RiderHistoryScreen(embedded: true),
             _profileTab(store),
           ],
         ),
@@ -370,31 +425,121 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
           ? ListView(
               padding: const EdgeInsets.all(26),
               children: [
-                const SizedBox(height: 60),
-                const Icon(Icons.hail_rounded,
-                    color: Color(0xFF4A4A4A), size: 38),
-                const SizedBox(height: 14),
-                Text(
-                  store.rideProfile?['is_online'] == true
-                      ? 'No ride requests right now.\nKeep the app open — new '
-                          'requests arrive instantly.'
-                      : 'You are offline.\nGo to the Profile tab and switch '
-                          'ONLINE to start getting rides.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      color: Color(0xFF8A8A8A), fontSize: 12.5, height: 1.55),
-                ),
+                _earningsCard(store),
+                const SizedBox(height: 16),
+                _emptyRequests(store),
               ],
             )
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
-              itemCount: reqs.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (_, i) =>
-                  _requestCard(Map<String, dynamic>.from(reqs[i] as Map)),
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 26),
+              children: [
+                _earningsCard(store),
+                const SizedBox(height: 14),
+                ...reqs.map((r) =>
+                    _requestCard(Map<String, dynamic>.from(r as Map))),
+              ],
+            ));
+  }
+
+  /// ⭐ v74: today's earnings at a glance.
+  Widget _earningsCard(AppStore store) {
+    final st = store.rideVendorStats;
+    double d(String k) => ((st[k] as num?)?.toDouble() ?? 0);
+    return RideGlass(
+      radius: 20,
+      padding: const EdgeInsets.fromLTRB(6, 16, 6, 16),
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          AppColors.red.withOpacity(.14),
+          const Color(0xFF131313).withOpacity(.92),
+        ],
+      ),
+      border: Border.all(color: AppColors.red.withOpacity(.3)),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              RideStat(
+                  value: '₹${d('today').toStringAsFixed(0)}',
+                  label: 'TODAY',
+                  color: RideColors.mint),
+              Container(width: 1, height: 30, color: RideColors.line),
+              RideStat(
+                  value: '₹${d('month').toStringAsFixed(0)}',
+                  label: 'THIS MONTH'),
+              Container(width: 1, height: 30, color: RideColors.line),
+              RideStat(
+                  value: '₹${d('earnings').toStringAsFixed(0)}',
+                  label: 'TOTAL'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                RideChip(
+                    icon: Icons.directions_car_rounded,
+                    label: '${st['rides'] ?? 0} rides'),
+                const SizedBox(width: 7),
+                RideChip(
+                    icon: Icons.straighten_rounded,
+                    label: '${d('km').toStringAsFixed(0)} km'),
+                const Spacer(),
+                if (d('pending') > 0)
+                  RideChip(
+                      icon: Icons.currency_rupee_rounded,
+                      label: '₹${d('pending').toStringAsFixed(0)} due',
+                      color: RideColors.amber),
+              ],
             ),
+          ),
+        ],
+      ),
     );
   }
+
+  Widget _emptyRequests(AppStore store) {
+    final online = store.rideProfile?['is_online'] == true;
+    return Column(
+      children: [
+        const SizedBox(height: 26),
+        const Icon(Icons.hail_rounded, color: Color(0xFF4A4A4A), size: 38),
+        const SizedBox(height: 14),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            online
+                ? 'No ride requests right now.\nKeep the app open — new '
+                    'requests arrive instantly.'
+                : 'You are offline.\nGo to the Profile tab and switch '
+                    'ONLINE to start getting rides.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                color: Color(0xFF8A8A8A), fontSize: 12.5, height: 1.55),
+          ),
+        ),
+        const SizedBox(height: 18),
+        RideButton(
+          label: online ? 'REFRESH' : 'GO TO PROFILE',
+          filled: false,
+          height: 44,
+          expand: false,
+          icon: online ? Icons.refresh_rounded : Icons.person_rounded,
+          onTap: () async {
+            if (online) {
+              await store.loadRideConsole();
+            } else {
+              DefaultTabController.of(context).animateTo(3);
+            }
+          },
+        ),
+      ],
+    );
+  }
+
 
   Widget _requestCard(Map<String, dynamic> r) {
     final hidden = r['phone_hidden'] == true;
@@ -564,7 +709,6 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
     final ride = active.isNotEmpty
         ? Map<String, dynamic>.from(active.first as Map)
         : null;
-    final past = store.rideVendorPast;
     if (ride == null) {
       return RefreshIndicator(
         color: AppColors.red,
@@ -578,23 +722,12 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
             const SizedBox(height: 14),
             const Text(
               'No active ride.\nAccept a request from the Requests tab and '
-              'it will show up here.',
+              'it will show up here.\n\nFinished rides are in the History '
+              'tab.',
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                   color: Color(0xFF8A8A8A), fontSize: 12.5, height: 1.55),
             ),
-            if (past.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              const Text('RECENT RIDES',
-                  style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 10,
-                      letterSpacing: 2,
-                      color: Color(0xFF7A7A7A),
-                      fontWeight: FontWeight.w700)),
-              const SizedBox(height: 10),
-              ...past.take(8).map((r) => _historyRow(Map<String, dynamic>.from(r as Map))),
-            ],
           ],
         ),
       );
@@ -662,6 +795,10 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
             ),
           ),
           const SizedBox(height: 16),
+          // ⭐ v74: exactly what the student paid — full or the first
+          // half — with the transaction id and whatever is still due.
+          _paymentPanel(ride),
+          const SizedBox(height: 14),
           // ⭐ v73: contact number — visible only AFTER the payment
           _callRow(ride),
           const SizedBox(height: 14),
@@ -670,7 +807,11 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
           _mapCard(ride),
           const SizedBox(height: 14),
           if (status == 'accepted') _waitForPayment(),
-          if (status == 'paid') _bigButton("I'M ON LOCATION", 'arrived', ride),
+          // ⭐ v75: nothing is automatic — the rider confirms he received
+          // the money before the trip can move on.
+          if (ride['can_confirm'] == true) _confirmCard(ride),
+          if (status == 'paid' && ride['can_confirm'] != true)
+            _bigButton("I'M ON LOCATION", 'arrived', ride),
           if (status == 'arrived') _otpBox(ride),
           if (status == 'ongoing') ...[
             const SizedBox(height: 4),
@@ -694,23 +835,219 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                 ],
               ),
             ),
-          if (past.isNotEmpty) ...[
-            const SizedBox(height: 22),
-            const Text('RECENT RIDES',
-                style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 10,
-                    letterSpacing: 2,
-                    color: Color(0xFF7A7A7A),
-                    fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+
+  /// ⭐ v74: the money, exactly like the food vendor portal shows it.
+  Widget _paymentPanel(Map<String, dynamic> ride) {
+    final mode = '${ride['payment_mode']}';
+    final paid = ((ride['amount_paid'] as num?)?.toDouble() ?? 0);
+    final due = ((ride['balance_due'] as num?)?.toDouble() ?? 0);
+    final done = ride['payment_done'] == true;
+    final txn = '${ride['txn_first'] ?? ''}';
+    final txn2 = '${ride['txn_second'] ?? ''}';
+    final split = mode == 'split';
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111111),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+            color: done
+                ? RideColors.mint.withOpacity(.4)
+                : const Color(0xFF262626)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('PAYMENT',
+                  style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      letterSpacing: 2,
+                      color: Color(0xFF7A7A7A),
+                      fontWeight: FontWeight.w700)),
+              const Spacer(),
+              RideChip(
+                label: mode.isEmpty
+                    ? 'not paid yet'
+                    : (split ? '50-50 SPLIT' : 'FULL PAYMENT'),
+                color: mode.isEmpty
+                    ? const Color(0xFF8A8A8A)
+                    : (split ? RideColors.amber : RideColors.mint),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Received',
+                        style: TextStyle(
+                            color: Color(0xFF7A7A7A), fontSize: 10.5)),
+                    const SizedBox(height: 3),
+                    Text('₹${paid.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                            color: RideColors.mint,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800)),
+                  ],
+                ),
+              ),
+              if (due > 0) ...[
+                Container(width: 1, height: 32, color: const Color(0xFF262626)),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Still due',
+                          style: TextStyle(
+                              color: Color(0xFF7A7A7A), fontSize: 10.5)),
+                      const SizedBox(height: 3),
+                      Text('₹${due.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                              color: RideColors.amber,
+                              fontSize: 19,
+                              fontWeight: FontWeight.w800)),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (txn.isNotEmpty || txn2.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0D0D0D),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF262626)),
+              ),
+              child: Column(
+                children: [
+                  if (txn.isNotEmpty)
+                    Row(
+                      children: [
+                        const Icon(Icons.receipt_long_rounded,
+                            size: 13, color: Color(0xFF7A7A7A)),
+                        const SizedBox(width: 8),
+                        const Text('Txn 1 · ',
+                            style: TextStyle(
+                                color: Color(0xFF7A7A7A), fontSize: 11)),
+                        Expanded(
+                          child: Text(txn,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 11.5)),
+                        ),
+                      ],
+                    ),
+                  if (txn2.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        const Icon(Icons.receipt_long_rounded,
+                            size: 13, color: Color(0xFF7A7A7A)),
+                        const SizedBox(width: 8),
+                        const Text('Txn 2 · ',
+                            style: TextStyle(
+                                color: Color(0xFF7A7A7A), fontSize: 11)),
+                        Expanded(
+                          child: Text(txn2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 11.5)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+          if (due > 0) ...[
+            const SizedBox(height: 13),
+            RideButton(
+              label: 'COLLECT ₹${due.toStringAsFixed(0)} FROM THE STUDENT',
+              height: 46,
+              icon: Icons.currency_rupee_rounded,
+              busy: _collecting,
+              onTap: _collecting ? null : () => _collectBalance(ride),
+            ),
             const SizedBox(height: 8),
-            ...past
-                .take(8)
-                .map((r) => _historyRow(Map<String, dynamic>.from(r as Map))),
+            const Text(
+              'Only tap this after the student has actually paid you the '
+              'balance.',
+              style: TextStyle(color: Color(0xFF6A6A6A), fontSize: 10.5,
+                  height: 1.45),
+            ),
+          ] else if (done) ...[
+            const SizedBox(height: 11),
+            Row(
+              children: const [
+                Icon(Icons.check_circle_rounded,
+                    size: 14, color: RideColors.mint),
+                SizedBox(width: 7),
+                Text('Fully paid — nothing left to collect',
+                    style: TextStyle(
+                        color: RideColors.mint, fontSize: 11.5)),
+              ],
+            ),
           ],
         ],
       ),
     );
+  }
+
+  bool _collecting = false;
+
+  Future<void> _collectBalance(Map<String, dynamic> ride) async {
+    final code = '${ride['ride_code']}';
+    final ok = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            backgroundColor: const Color(0xFF121212),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18)),
+            title: const Text('Balance received?',
+                style: TextStyle(color: Colors.white, fontSize: 16)),
+            content: const Text(
+              'Only confirm this once the student has paid you the '
+              'remaining amount in cash.',
+              style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('NOT YET',
+                      style: TextStyle(color: Color(0xFF8A8A8A)))),
+              TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('RECEIVED',
+                      style: TextStyle(color: RideColors.mint))),
+            ],
+          ),
+        ) ??
+        false;
+    if (!ok) return;
+    if (!mounted) return;
+    setState(() => _collecting = true);
+    final err =
+        await context.read<AppStore>().rideCollectBalance(code);
+    if (!mounted) return;
+    setState(() => _collecting = false);
+    showCunnectToast(context, err ?? 'Balance marked as received',
+        error: err != null);
   }
 
   /// ⭐ v73: the number to call — shown only after the payment is in.
@@ -967,6 +1304,91 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
           ],
         ),
       );
+
+  /// ⭐ v75: the rider confirms the payment HIMSELF.
+  ///
+  /// Nothing moves on automatically once the student has paid — the ride
+  /// only continues after this button is tapped.
+  Widget _confirmCard(Map<String, dynamic> ride) {
+    final paid = ((ride['amount_paid'] as num?)?.toDouble() ?? 0);
+    final txn = '${ride['txn_first'] ?? ''}';
+    final code = '${ride['ride_code']}';
+    return Container(
+      padding: const EdgeInsets.fromLTRB(15, 16, 15, 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111111),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: RideColors.mint.withOpacity(.55)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.verified_rounded,
+                  size: 18, color: RideColors.mint),
+              const SizedBox(width: 9),
+              const Expanded(
+                child: Text('PAYMENT RECEIVED',
+                    style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10,
+                        letterSpacing: 2,
+                        color: RideColors.mint,
+                        fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text('₹${paid.toStringAsFixed(0)}',
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800)),
+          if (txn.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text('Txn $txn',
+                style: const TextStyle(
+                    color: Color(0xFF7A7A7A), fontSize: 11.5)),
+          ],
+          const SizedBox(height: 10),
+          const Text(
+            'Check the money in your UPI app, then confirm below. The '
+            'ride stays on hold until you do — nothing is automatic.',
+            style: TextStyle(
+                color: Color(0xFFB7B7BC), fontSize: 12, height: 1.5),
+          ),
+          const SizedBox(height: 13),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: () async {
+                RingService.stop();
+                final err = await context
+                    .read<AppStore>()
+                    .rideVendorConfirm(code);
+                if (!mounted) return;
+                showCunnectToast(
+                    context, err ?? 'Payment confirmed — you can carry on');
+                if (err == null) context.read<AppStore>().loadRideConsole();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: RideColors.mint,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(13)),
+              ),
+              child: const Text('CONFIRM PAYMENT',
+                  style: TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   /// ⭐ v68: the OTP is on the STUDENT's screen — the rider types it in.
   Widget _otpBox(Map<String, dynamic> ride) {
@@ -1230,7 +1652,41 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                         letterSpacing: 1.1)),
           ),
         ),
-        // ⭐ v73: WHEN I AM NOT AVAILABLE
+        // ⭐ v75: PAYMENT UPI — the ride QR is generated from this id
+        const SizedBox(height: 24),
+        _sectionLabel('PAYMENT UPI'),
+        const SizedBox(height: 6),
+        const Text(
+          'The student\'s payment QR is built from this UPI id with the '
+          'exact fare locked in. Leave it empty and ride payments cannot '
+          'be made.',
+          style: TextStyle(color: Color(0xFF8A8A8A), fontSize: 11.5, height: 1.5),
+        ),
+        const SizedBox(height: 10),
+        _field(_upi, 'Your UPI id (e.g. yourname@okhdfcbank)'),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 46,
+          child: OutlinedButton(
+            onPressed: _upiSaving ? null : _saveUpi,
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: RideColors.mint),
+              foregroundColor: RideColors.mint,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            child: _upiSaving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        color: RideColors.mint, strokeWidth: 2))
+                : const Text('SAVE UPI ID',
+                    style: TextStyle(
+                        fontSize: 12.5, fontWeight: FontWeight.w800)),
+          ),
+        ),
+        // ⭐ v74: WHEN I AM NOT AVAILABLE — as many slots as needed
         const SizedBox(height: 24),
         _sectionLabel('WHEN I AM NOT AVAILABLE'),
         const SizedBox(height: 6),
@@ -1241,6 +1697,44 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
         ),
         const SizedBox(height: 12),
         _blocksCard(context.watch<AppStore>()),
+        // ⭐ v74: ride history + earnings, one tap away
+        const SizedBox(height: 26),
+        _sectionLabel('MY BUSINESS'),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111111),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF262626)),
+          ),
+          child: Column(
+            children: [
+              RideTile(
+                icon: Icons.history_rounded,
+                title: 'Ride history',
+                subtitle: 'Every ride you have driven, with receipts',
+                trailing: const Icon(Icons.chevron_right_rounded,
+                    size: 18, color: Color(0xFF8A8A8A)),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const RiderHistoryScreen())),
+              ),
+              RideTile(
+                icon: Icons.currency_rupee_rounded,
+                tint: RideColors.mint,
+                title: 'Earnings',
+                subtitle:
+                    'Today ₹${((store.rideVendorStats['today'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}'
+                    ' · this month ₹${((store.rideVendorStats['month'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                trailing: Text(
+                    '${store.rideVendorStats['rides'] ?? 0} rides',
+                    style: const TextStyle(
+                        color: Color(0xFF8A8A8A), fontSize: 11.5)),
+                onTap: () => DefaultTabController.of(context).animateTo(0),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 26),
         // ⭐ v73: LOG OUT of the ride partner account
         SizedBox(
@@ -1434,10 +1928,17 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
 
   // ------------------- unavailability slots (v73) -------------------
 
+  /// ⭐ v74: EVERY slot this partner is busy — as many as he needs
+  /// (4–5 pm for a class AND 6–7 pm for duty, on the same day).
+  /// Rides inside any of these windows never reach him.
   Widget _blocksCard(AppStore store) {
     final blocks = store.rideBlocks;
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final dates = blocks
+        .where((b) => '${b['kind']}' != 'daily')
+        .toList();
     return Container(
-      padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
+      padding: const EdgeInsets.fromLTRB(13, 13, 13, 13),
       decoration: BoxDecoration(
         color: const Color(0xFF111111),
         borderRadius: BorderRadius.circular(14),
@@ -1446,88 +1947,185 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (blocks.isEmpty)
+          const Text(
+            'Add every hour you are busy — class, duty, anything. '
+            'You can add as many slots as you need on the same day.',
+            style: TextStyle(
+                color: Color(0xFF7A7A7F), fontSize: 11, height: 1.5),
+          ),
+          const SizedBox(height: 12),
+          for (var i = 0; i < 7; i++)
+            _dayRow(
+              days[i],
+              blocks
+                  .where((b) =>
+                      '${b['kind']}' == 'daily' &&
+                      ((b['weekday'] as num?)?.toInt() ?? -1) == i)
+                  .toList(),
+              i,
+            ),
+          const SizedBox(height: 6),
+          Container(height: 1, color: const Color(0xFF202020)),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.event_busy_rounded,
+                  size: 14, color: Color(0xFFFF9CA5)),
+              const SizedBox(width: 8),
+              const Text('Specific dates',
+                  style: TextStyle(
+                      color: Color(0xFFEDEDF0),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700)),
+              const Spacer(),
+              GestureDetector(
+                onTap: () => _addBlock('date'),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppColors.red.withOpacity(.12),
+                    borderRadius: BorderRadius.circular(9),
+                    border: Border.all(color: AppColors.red.withOpacity(.4)),
+                  ),
+                  child: const Text('Add a date',
+                      style: TextStyle(
+                          color: AppColors.red,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ],
+          ),
+          if (dates.isEmpty)
             const Padding(
-              padding: EdgeInsets.symmetric(vertical: 6),
-              child: Text('No blocked slots — you are available all day.',
-                  style: TextStyle(color: Color(0xFF7A7A7F), fontSize: 11.5)),
+              padding: EdgeInsets.only(top: 8),
+              child: Text('No one-off dates blocked.',
+                  style:
+                      TextStyle(color: Color(0xFF5A5A5A), fontSize: 11)),
             )
           else
-            for (final b in blocks)
+            for (final b in dates)
               Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.only(top: 7),
                 child: Row(children: [
-                  Icon(
-                      b['kind'] == 'daily'
-                          ? Icons.repeat_rounded
-                          : Icons.event_busy_rounded,
-                      size: 15,
-                      color: const Color(0xFFFF9CA5)),
-                  const SizedBox(width: 9),
+                  const Icon(Icons.calendar_month_rounded,
+                      size: 14, color: Color(0xFF8A8A8A)),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      b['kind'] == 'daily'
-                          ? 'Every ${b['weekday_name']} · ${b['start']} – ${b['end']}'
-                          : '${b['date']} · ${b['start']} – ${b['end']}',
-                      style: const TextStyle(
-                          color: Color(0xFFEDEDF0), fontSize: 12),
-                    ),
+                        '${b['date']} · ${b['start']} – ${b['end']}',
+                        style: const TextStyle(
+                            color: Color(0xFFEDEDF0), fontSize: 11.5)),
                   ),
                   GestureDetector(
                     onTap: () async {
                       await context
                           .read<AppStore>()
                           .deleteRideBlock((b['id'] as num).toInt());
-                      if (mounted) showCunnectToast(context, 'Slot removed');
+                      if (mounted) {
+                        showCunnectToast(context, 'Slot removed');
+                      }
                     },
                     child: const Icon(Icons.close_rounded,
-                        size: 17, color: Color(0xFF7A7A7F)),
+                        size: 16, color: Color(0xFF7A7A7F)),
                   ),
                 ]),
               ),
-          const SizedBox(height: 8),
-          Row(children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _addBlock('daily'),
-                icon: const Icon(Icons.repeat_rounded, size: 15),
-                label: const Text('Every week'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Color(0x33FFFFFF)),
-                  padding: const EdgeInsets.symmetric(vertical: 11),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(11)),
-                  textStyle: const TextStyle(
-                      fontSize: 11.5, fontWeight: FontWeight.w700),
-                ),
-              ),
-            ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _addBlock('date'),
-                icon: const Icon(Icons.calendar_month_rounded, size: 15),
-                label: const Text('One date'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Color(0x33FFFFFF)),
-                  padding: const EdgeInsets.symmetric(vertical: 11),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(11)),
-                  textStyle: const TextStyle(
-                      fontSize: 11.5, fontWeight: FontWeight.w700),
-                ),
-              ),
-            ),
-          ]),
         ],
       ),
     );
   }
 
-  Future<void> _addBlock(String kind) async {
-    var weekday = DateTime.now().weekday - 1;
+  Widget _dayRow(String label, List blocks, int weekday) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 32,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(label,
+                  style: const TextStyle(
+                      color: Color(0xFF9E9E9E),
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700)),
+            ),
+          ),
+          Expanded(
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final b in blocks)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 9, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.red.withOpacity(.12),
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(
+                          color: AppColors.red.withOpacity(.38)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('${b['start']} – ${b['end']}',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700)),
+                        const SizedBox(width: 6),
+                        GestureDetector(
+                          onTap: () async {
+                            await context
+                                .read<AppStore>()
+                                .deleteRideBlock((b['id'] as num).toInt());
+                            if (mounted) {
+                              showCunnectToast(context, 'Slot removed');
+                            }
+                          },
+                          child: const Icon(Icons.close_rounded,
+                              size: 13, color: Color(0xFFFF9CA5)),
+                        ),
+                      ],
+                    ),
+                  ),
+                GestureDetector(
+                  onTap: () => _addBlock('daily', weekday: weekday),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 9, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF161616),
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(color: const Color(0xFF303030)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.add_rounded,
+                            size: 13, color: Color(0xFF9E9E9E)),
+                        SizedBox(width: 3),
+                        Text('slot',
+                            style: TextStyle(
+                                color: Color(0xFF9E9E9E), fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addBlock(String kind, {int? weekday}) async {
+    var wd = weekday ?? DateTime.now().weekday - 1;
     var from = const TimeOfDay(hour: 14, minute: 0);
     var to = const TimeOfDay(hour: 16, minute: 0);
     DateTime? day = kind == 'date' ? DateTime.now() : null;
@@ -1574,15 +2172,15 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                     for (int i = 0; i < 7; i++)
                       ChoiceChip(
                         label: Text(days[i]),
-                        selected: weekday == i,
+                        selected: wd == i,
                         selectedColor: AppColors.red,
                         backgroundColor: const Color(0xFF1E1E1E),
                         labelStyle: TextStyle(
-                            color: weekday == i
+                            color: wd == i
                                 ? Colors.white
                                 : const Color(0xFF9A9A9A),
                             fontSize: 11),
-                        onSelected: (_) => setLocal(() => weekday = i),
+                        onSelected: (_) => setLocal(() => wd = i),
                       ),
                   ],
                 )
@@ -1667,7 +2265,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
           '${from.minute.toString().padLeft(2, '0')}',
       'end': '${to.hour.toString().padLeft(2, '0')}:'
           '${to.minute.toString().padLeft(2, '0')}',
-      if (kind == 'daily') 'weekday': weekday,
+      if (kind == 'daily') 'weekday': wd,
       if (kind == 'date')
         'date': '${(day ?? DateTime.now()).year.toString().padLeft(4, '0')}-'
             '${(day ?? DateTime.now()).month.toString().padLeft(2, '0')}-'

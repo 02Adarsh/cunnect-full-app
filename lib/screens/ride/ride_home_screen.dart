@@ -6,19 +6,32 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/up_places.dart';
 import '../../services/app_store.dart';
 import '../../services/local_store.dart';
+import '../../services/offline_tiles.dart';
+import '../../services/open_url_stub.dart'
+    if (dart.library.html) '../../services/open_url_web.dart'
+    if (dart.library.io) '../../services/open_url_mobile.dart';
+import '../../services/ride_events.dart';
+import '../../services/app_portal.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart' show showCunnectToast;
+import '../../widgets/ride_ui.dart';
+import 'ride_history_screen.dart';
 import 'ride_live_map_screen.dart';
 import 'ride_map_picker_screen.dart';
 import 'ride_tracking_screen.dart';
 
-/// ⭐ v68: CUnnect Ride — book a ride across the campus.
+/// ⭐ v74: CUnnect RIDE — a complete, premium ride booking experience.
 ///
-/// Pickup / drop (tap the map or search), time, vehicle — then
-/// BOOK RIDE slides up an Uber-style sheet with the route, the fare
-/// breakdown, your number and the note, and confirms from there.
+///  * a live map that shows the route you are building
+///  * a sliding "Choose your ride" sheet (Uber-style) with every vehicle,
+///    the compulsory time slot, split-the-fare with friends, notes and
+///    the read-only profile number
+///  * one-tap saved & recent places, safety tools and ride statistics
+///
+/// Maps are OpenStreetMap — no Google key, no billing, works offline.
 class RideHomeScreen extends StatefulWidget {
   const RideHomeScreen({super.key});
 
@@ -26,828 +39,713 @@ class RideHomeScreen extends StatefulWidget {
   State<RideHomeScreen> createState() => _RideHomeScreenState();
 }
 
-class _RideHomeScreenState extends State<RideHomeScreen> {
+class _RideHomeScreenState extends State<RideHomeScreen>
+    with WidgetsBindingObserver {
+  final _mapController = MapController();
+  final _notes = TextEditingController();
+  final _otherName = TextEditingController();
+  final _otherPhone = TextEditingController();
+
   String _pickup = '';
   double? _pickupLat, _pickupLng;
   String _drop = '';
   double? _dropLat, _dropLng;
-  String _vehicle = 'mini';
-  bool _busy = false;
-  bool _estimating = false;
+
   DateTime? _when;
+  String _vehicle = 'mini';
+  bool _forOther = false;
+  bool _splitWithFriends = false;
+
+  bool _busy = false;
+  bool _locating = false;
+  bool _estimating = false;
   String? _error;
 
-  final _phone = TextEditingController();
-  final _notes = TextEditingController();
-  // ⭐ v73: "booking for someone else" — their number is what the rider dials
-  final _otherPhone = TextEditingController();
-  final _otherName = TextEditingController();
-  bool _forOther = false;
-  List<Map<String, dynamic>> _recent = const [];
+  List<Map<String, dynamic>> _saved = [];
+  List<Map<String, dynamic>> _recent = [];
+  List<Map<String, dynamic>> _pax = [];
+  List<Map<String, dynamic>> _contacts = [];
+
+  static const _kSaved = 'ride_saved_places';
+  static const _kRecent = 'ride_recent_places';
+  static const _kContacts = 'ride_sos_contacts';
 
   @override
   void initState() {
     super.initState();
+    // ⭐ v75: the student Ride screen — only student ride events belong
+    // here (the rider gets his own in the ride partner portal).
+    ActivePortal.set(AppPortal.student);
+    WidgetsBinding.instance.addObserver(this);
+    _loadLocal();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final store = context.read<AppStore>();
-      _phone.text = store.customerPhone;
-      _loadRecent();
-      // ⭐ instant: paint the cached ride/list, refresh in background.
-      if (store.activeRide == null) store.cachedRide();
-      await store.loadRides();
+      await Future.wait([
+        store.loadRides(),
+        store.loadRideStats(),
+      ]);
       if (!mounted) return;
-      setState(() {});
+      await RideEvents.consumePending(context);
+      _followActive();
     });
   }
 
   @override
   void dispose() {
-    _phone.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     _notes.dispose();
-    _otherPhone.dispose();
     _otherName.dispose();
+    _otherPhone.dispose();
     super.dispose();
   }
 
-  void _loadRecent() {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      context.read<AppStore>().loadRides();
+      RideEvents.consumePending(context);
+    }
+  }
+
+  // ------------------------------------------------------------ local
+
+  void _loadLocal() {
+    _saved = _readList(_kSaved);
+    if (_saved.isEmpty) {
+      // seed the three places students use the most
+      _saved = [
+        {'name': 'Chandigarh University UP', 'lat': kCampusLat, 'lng': kCampusLng},
+        {'name': 'Nawabganj', 'lat': 26.613966, 'lng': 80.658155},
+        {'name': 'Unnao Junction', 'lat': 26.5492382, 'lng': 80.4874371},
+      ];
+      _writeList(_kSaved, _saved);
+    }
+    _recent = _readList(_kRecent);
+    _contacts = _readList(_kContacts);
+    if (mounted) setState(() {});
+  }
+
+  List<Map<String, dynamic>> _readList(String key) {
     try {
-      final raw = LocalStore.get('ride_recent');
-      if (raw == null || raw.isEmpty) return;
+      final raw = LocalStore.get(key);
+      if (raw == null || raw.isEmpty) return [];
       final list = jsonDecode(raw);
-      if (list is List) {
-        _recent = [
-          for (final e in list.take(6)) Map<String, dynamic>.from(e as Map)
-        ];
-      }
-    } catch (_) {}
+      if (list is! List) return [];
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
-  Future<void> _saveRecent(String text, double lat, double lng) async {
-    _recent = [
-      {'text': text, 'lat': lat, 'lng': lng},
-      ..._recent.where((e) => '${e['text']}' != text).take(5),
-    ];
-    setState(() {});
-    try {
-      LocalStore.set('ride_recent', jsonEncode(_recent));
-    } catch (_) {}
+  void _writeList(String key, List<Map<String, dynamic>> list) {
+    LocalStore.set(key, jsonEncode(list));
   }
 
-  Future<void> _pick(bool isPickup) async {
-    final res = await Navigator.of(context).push<Map<String, dynamic>>(
-      MaterialPageRoute(
-        builder: (_) => RideMapPickerScreen(
-          title: isPickup ? 'Pickup location' : 'Drop location',
-          hint: isPickup
-              ? 'Tap where the rider should pick you up.'
-              : 'Tap where you want to be dropped.',
-          initial: isPickup
-              ? (_pickupLat == null
-                  ? null
-                  : LatLng(_pickupLat!, _pickupLng!))
-              : (_dropLat == null ? null : LatLng(_dropLat!, _dropLng!)),
-        ),
-      ),
-    );
-    if (res == null || !mounted) return;
-    setState(() {
-      if (isPickup) {
-        _pickup = '${res['text']}';
-        _pickupLat = (res['lat'] as num).toDouble();
-        _pickupLng = (res['lng'] as num).toDouble();
-      } else {
-        _drop = '${res['text']}';
-        _dropLat = (res['lat'] as num).toDouble();
-        _dropLng = (res['lng'] as num).toDouble();
-      }
-      _error = null;
-    });
-    _saveRecent('${res['text']}', (res['lat'] as num).toDouble(),
-        (res['lng'] as num).toDouble());
-    await _estimate();
+  Future<void> _rememberRecent(String name, double lat, double lng) async {
+    _recent.removeWhere((p) => '${p['name']}' == name);
+    _recent.insert(0, {'name': name, 'lat': lat, 'lng': lng});
+    if (_recent.length > 5) _recent = _recent.take(5).toList();
+    _writeList(_kRecent, _recent);
+    if (mounted) setState(() {});
   }
 
-  Future<void> _estimate() async {
-    if (_pickupLat == null || _dropLat == null) return;
-    setState(() => _estimating = true);
-    final err = await context.read<AppStore>().rideEstimate(
-          pickupLat: _pickupLat!,
-          pickupLng: _pickupLng!,
-          dropLat: _dropLat!,
-          dropLng: _dropLng!,
-        );
-    if (!mounted) return;
-    setState(() {
-      _estimating = false;
-      _error = err;
-    });
-  }
-
-  String _fmtSlot(DateTime t) {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final h = t.hour.toString().padLeft(2, '0');
-    final m = t.minute.toString().padLeft(2, '0');
-    return '${days[t.weekday - 1]} $h:$m';
-  }
-
-  Future<void> _pickTime() async {
-    final now = DateTime.now();
-    final t = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
-      builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: const ColorScheme.dark(
-              primary: AppColors.red, surface: Color(0xFF111111)),
-        ),
-        child: child!,
-      ),
-    );
-    if (t == null || !mounted) return;
-    setState(() =>
-        _when = DateTime(now.year, now.month, now.day, t.hour, t.minute));
-  }
-
-  // ------------------------------------------------------------------
+  // ------------------------------------------------------------- build
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final options = store.rideOptions;
-    final distance = store.rideDistanceKm;
     final active = store.activeRide;
-    final past = store.pastRides;
-
     return Scaffold(
-      backgroundColor: AppColors.page,
-      appBar: AppBar(
-        backgroundColor: AppColors.page,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text('CUNNECT RIDE',
-            style: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 12,
-                letterSpacing: 2.4,
-                fontWeight: FontWeight.w800,
-                color: Colors.white)),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
-          children: [
-            _heroCard(active),
-            const SizedBox(height: 12),
-            if (active != null) ...[
-              _activeBanner(context, active),
-              const SizedBox(height: 12),
-            ],
-            _routeCard(),
-            const SizedBox(height: 12),
-            if (_recent.isNotEmpty) ...[
-              _recentRow(),
-              const SizedBox(height: 12),
-            ],
-            if (_pickupLat != null && _dropLat != null && distance > 0)
-              _tripMeta(distance),
-            const SizedBox(height: 16),
-            _sectionLabel('CHOOSE YOUR RIDE'),
-            const SizedBox(height: 10),
-            if (_estimating)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 26),
-                child: Center(
-                    child: CircularProgressIndicator(
-                        color: AppColors.red, strokeWidth: 2)),
-              )
-            else if (options.isEmpty)
-              _emptyHint()
-            else
-              ...options.map((o) => _vehicleCard(context, o as Map)),
-            const SizedBox(height: 18),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(_error!,
-                    style: const TextStyle(
-                        color: Color(0xFFFF8791), fontSize: 12.5)),
+      backgroundColor: RideColors.bg,
+      body: Stack(
+        children: [
+          _mapHero(store),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _topBar(store),
+          ),
+          DraggableScrollableSheet(
+            initialChildSize: active != null ? 0.40 : 0.52,
+            minChildSize: 0.22,
+            maxChildSize: 0.95,
+            snap: true,
+            snapSizes: const [0.30, 0.52, 0.90],
+            builder: (context, controller) => Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFF0C0C0C),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black87,
+                      blurRadius: 30,
+                      offset: Offset(0, -8)),
+                ],
               ),
-            SizedBox(
-              height: 54,
-              child: ElevatedButton(
-                onPressed: _busy
-                    ? null
-                    : () {
-                        // ⭐ v73: no time slot, no booking.
-                        if (_when == null) {
-                          showCunnectToast(context,
-                              'Choose the time slot for this ride first.');
-                          _pickTime();
-                          return;
-                        }
-                        _openBookingSheet();
-                      },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.red,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
+              child: SafeArea(
+                top: false,
+                child: ListView(
+                  controller: controller,
+                  padding: const EdgeInsets.fromLTRB(18, 10, 18, 26),
+                  children: [
+                    Center(child: RideGrab()),
+                    const SizedBox(height: 14),
+                    if (active != null) ...[
+                      _activeCard(store, active),
+                      const SizedBox(height: 14),
+                    ],
+                    _routeCard(),
+                    const SizedBox(height: 14),
+                    _placesRow(),
+                    const SizedBox(height: 16),
+                    if (_pickupLat != null && _dropLat != null) ...[
+                      _chooseRide(store),
+                    ] else ...[
+                      _statsStrip(store),
+                      const SizedBox(height: 14),
+                      _safetyCard(),
+                    ],
+                  ],
                 ),
-                child: _busy
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2))
-                    : const Text('BOOK RIDE',
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.3)),
               ),
             ),
-            const SizedBox(height: 12),
-            const Text(
-              'You pay only after a rider accepts. Full payment, or '
-              '50-50 with a small 5% split fee.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: Color(0xFF6A6A6A), fontSize: 11.5, height: 1.5),
-            ),
-            if (past.isNotEmpty) ...[
-              const SizedBox(height: 26),
-              Row(
-                children: [
-                  _sectionLabel('YOUR RIDES'),
-                  const Spacer(),
-                  Text(
-                      '${past.length} rides · ₹${_totalSpent(past).toStringAsFixed(0)}',
-                      style: const TextStyle(
-                          color: Color(0xFF6A6A6A), fontSize: 11)),
-                ],
-              ),
-              const SizedBox(height: 10),
-              ...past
-                  .take(8)
-                  .map((r) => _historyRow(Map<String, dynamic>.from(r as Map))),
-            ],
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _activeBanner(BuildContext context, Map<String, dynamic> ride) {
-    return GestureDetector(
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) =>
-              RideTrackingScreen(rideCode: '${ride['ride_code']}'))),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 14),
-        padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
-        decoration: BoxDecoration(
-          color: const Color(0xFF161616),
-          borderRadius: BorderRadius.circular(13),
-          border: Border.all(color: AppColors.red.withOpacity(.5)),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.local_taxi_rounded,
-                color: AppColors.red, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('You have a ride in progress',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 2),
-                  Text('${ride['vehicle_label']} · ${ride['status']}',
-                      style: const TextStyle(
-                          color: AppColors.muted, fontSize: 11.5)),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right_rounded, color: Color(0xFF8A8A8A)),
+  // ----------------------------------------------------------- top bar
+
+  Widget _topBar(AppStore store) {
+    final active = store.activeRide;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.black.withOpacity(.85),
+            Colors.black.withOpacity(.35),
+            Colors.transparent,
           ],
         ),
       ),
-    );
-  }
-
-  // ⭐ v72: "Use my location" / swap / stats helpers ------------------
-
-  Future<void> _useMyLocation() async {
-    try {
-      final ok = await Geolocator.isLocationServiceEnabled();
-      if (!ok) {
-        if (mounted) {
-          showCunnectToast(context, 'Turn on location services first.',
-              error: true);
-        }
-        return;
-      }
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-      if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        if (mounted) {
-          showCunnectToast(context, 'Location permission is needed.',
-              error: true);
-        }
-        return;
-      }
-      final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
-      final lat = pos.latitude;
-      final lng = pos.longitude;
-      final name = await reverseGeocodeName(lat, lng);
-      if (!mounted) return;
-      setState(() {
-        _pickupLat = lat;
-        _pickupLng = lng;
-        _pickup = name.isNotEmpty
-            ? name
-            : 'My location (${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)})';
-        _error = null;
-      });
-      await _estimate();
-    } catch (_) {
-      if (mounted) {
-        showCunnectToast(context, 'Could not read your location.', error: true);
-      }
-    }
-  }
-
-  void _swapPoints() {
-    setState(() {
-      final t = _pickup;
-      _pickup = _drop;
-      _drop = t;
-      final la = _pickupLat;
-      _pickupLat = _dropLat;
-      _dropLat = la;
-      final lo = _pickupLng;
-      _pickupLng = _dropLng;
-      _dropLng = lo;
-    });
-    _estimate();
-  }
-
-  String _bestValueKey() {
-    final options = context.read<AppStore>().rideOptions;
-    if (options.isEmpty) return '';
-    var best = '';
-    num? low;
-    for (final o in options) {
-      final f = (o['fare'] as num?) ?? 0;
-      if (low == null || f < low) {
-        low = f;
-        best = '${o['key']}';
-      }
-    }
-    return best;
-  }
-
-  double _totalSpent(List<dynamic> past) {
-    var sum = 0.0;
-    for (final r in past) {
-      final m = r as Map? ?? {};
-      sum += ((m['fare'] as num?)?.toDouble() ?? 0);
-    }
-    return sum;
-  }
-
-  Widget _miniAction(IconData icon, String label, VoidCallback onTap) =>
-      InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+      child: SafeArea(
+        bottom: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+          padding: const EdgeInsets.fromLTRB(8, 6, 12, 26),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 19),
+                color: Colors.white,
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+              const SizedBox(width: 2),
+              const Text('Ride',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800)),
+              const Spacer(),
+              IconButton(
+                tooltip: 'Ride history',
+                icon: const Icon(Icons.history_rounded, size: 21),
+                color: Colors.white,
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const RideHistoryScreen())),
+              ),
+              if (active != null)
+                IconButton(
+                  tooltip: 'Live map',
+                  icon: const Icon(Icons.map_rounded, size: 21),
+                  color: RideColors.mint,
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => RideLiveMapScreen(
+                          rideCode: '${active['ride_code']}'))),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------ map
+
+  Widget _mapHero(AppStore store) {
+    final active = store.activeRide;
+    final aLat = (active?['pickup_lat'] as num?)?.toDouble();
+    final aLng = (active?['pickup_lng'] as num?)?.toDouble();
+    final hasRoute = _pickupLat != null && _dropLat != null;
+    final p = (aLat != null && aLng != null)
+        ? LatLng(aLat, aLng)
+        : (hasRoute
+            ? LatLng((_pickupLat! + _dropLat!) / 2, (_pickupLng! + _dropLng!) / 2)
+            : (_pickupLat != null
+                ? LatLng(_pickupLat!, _pickupLng!)
+                : LatLng(kCampusLat, kCampusLng)));
+    return Positioned.fill(
+      child: FlutterMap(
+        mapController: _mapController,
+        options: MapOptions(
+          initialCenter: p,
+          initialZoom: hasRoute ? 13.4 : 15.2,
+          onTap: (_, __) => _openPicker(isPickup: _pickupLat == null),
+        ),
+        children: [
+          TileLayer(
+            tileProvider: CachedTileProvider(),
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'com.cunnect.cunnect_food',
+            maxZoom: 19,
+          ),
+          if (hasRoute)
+            PolylineLayer(polylines: [
+              Polyline(
+                points: [
+                  LatLng(_pickupLat!, _pickupLng!),
+                  LatLng(_dropLat!, _dropLng!),
+                ],
+                color: AppColors.red.withOpacity(.92),
+                strokeWidth: 4.5,
+              ),
+            ]),
+          MarkerLayer(markers: [
+            Marker(
+              point: LatLng(kCampusLat, kCampusLng),
+              width: 118,
+              height: 30,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xE6141414),
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: AppColors.red),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.school_rounded,
+                        size: 12, color: Color(0xFFFF9CA5)),
+                    SizedBox(width: 5),
+                    Flexible(
+                      child: Text('Chandigarh University UP',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_pickupLat != null)
+              Marker(
+                point: LatLng(_pickupLat!, _pickupLng!),
+                width: 40,
+                height: 40,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: RideColors.mint, width: 2.5),
+                  ),
+                  child: const Icon(Icons.my_location_rounded,
+                      size: 19, color: RideColors.mint),
+                ),
+              ),
+            if (_dropLat != null)
+              Marker(
+                point: LatLng(_dropLat!, _dropLng!),
+                width: 40,
+                height: 40,
+                child: const Icon(Icons.location_pin,
+                    color: AppColors.red, size: 40),
+              ),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------- active ride
+
+  Widget _activeCard(AppStore store, Map<String, dynamic> ride) {
+    final status = '${ride['status']}';
+    return RideGlass(
+      radius: 20,
+      padding: const EdgeInsets.all(15),
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          AppColors.red.withOpacity(.16),
+          const Color(0xFF131313).withOpacity(.9),
+        ],
+      ),
+      border: Border.all(color: AppColors.red.withOpacity(.42)),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => RideTrackingScreen(rideCode: '${ride['ride_code']}'))),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                    color: RideColors.mint, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 8),
+              const Text('RIDE IN PROGRESS',
+                  style: TextStyle(
+                      color: RideColors.mint,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2)),
+              const Spacer(),
+              const Icon(Icons.chevron_right_rounded,
+                  size: 18, color: Color(0xFF8A8A8A)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(_statusLine(status),
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Text('${ride['pickup_text']} → ${ride['drop_text']}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Color(0xFFB0B0B5), fontSize: 12)),
+          const SizedBox(height: 12),
+          RideButton(
+            label: 'OPEN MY RIDE',
+            height: 44,
+            icon: Icons.directions_car_rounded,
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) =>
+                    RideTrackingScreen(rideCode: '${ride['ride_code']}'))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _statusLine(String s) => switch (s) {
+        'requested' => 'Finding your rider',
+        'accepted' => 'Accepted — pay to confirm',
+        'paid' => 'Rider on the way',
+        'arrived' => 'Rider has arrived',
+        'ongoing' => 'Ride in progress',
+        'completed' => 'Ride completed',
+        _ => 'Ride $s',
+      };
+
+  // ------------------------------------------------------- route card
+
+  Widget _routeCard() {
+    return RideGlass(
+      radius: 20,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      child: Column(
+        children: [
+          _pointRow(
+            icon: Icons.trip_origin_rounded,
+            color: RideColors.mint,
+            hint: 'Pickup location',
+            text: _pickup,
+            onTap: () => _openPicker(isPickup: true),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                GestureDetector(
+                  onTap: _locating ? null : () => _useMyLocation(forPickup: true),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: RideColors.mint.withOpacity(.12),
+                      borderRadius: BorderRadius.circular(9),
+                      border:
+                          Border.all(color: RideColors.mint.withOpacity(.35)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _locating
+                            ? const SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 1.6,
+                                    color: RideColors.mint))
+                            : const Icon(Icons.gps_fixed_rounded,
+                                size: 13, color: RideColors.mint),
+                        const SizedBox(width: 6),
+                        const Text('Current',
+                            style: TextStyle(
+                                color: RideColors.mint,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 21),
+            child: Row(
+              children: List.generate(
+                  9,
+                  (i) => Expanded(
+                        child: Container(
+                          height: 1.5,
+                          margin: const EdgeInsets.symmetric(horizontal: 2),
+                          color: i.isEven
+                              ? const Color(0xFF3A3A3A)
+                              : Colors.transparent,
+                        ),
+                      )),
+            ),
+          ),
+          _pointRow(
+            icon: Icons.location_on_rounded,
+            color: AppColors.red,
+            hint: 'Where to?',
+            text: _drop,
+            onTap: () => _openPicker(isPickup: false),
+            trailing: _drop.isNotEmpty
+                ? GestureDetector(
+                    onTap: _saveCurrentDrop,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 9, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A1A1A),
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(color: RideColors.line),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.bookmark_add_rounded,
+                              size: 13, color: Color(0xFF9E9E9E)),
+                          SizedBox(width: 5),
+                          Text('Save',
+                              style: TextStyle(
+                                  color: Color(0xFF9E9E9E),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700)),
+                        ],
+                      ),
+                    ),
+                  )
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pointRow({
+    required IconData icon,
+    required Color color,
+    required String hint,
+    required String text,
+    required VoidCallback onTap,
+    Widget? trailing,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              Icon(icon, size: 19, color: color),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  text.isEmpty ? hint : text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: text.isEmpty ? const Color(0xFF6A6A6A) : Colors.white,
+                    fontSize: 13.5,
+                    fontWeight:
+                        text.isEmpty ? FontWeight.w500 : FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (trailing != null) trailing,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------ saved places
+
+  Widget _placesRow() {
+    final chips = <Widget>[];
+    for (final p in _saved.take(6)) {
+      chips.add(_placeChip('${p['name']}', Icons.bookmark_rounded,
+          RideColors.mint, () => _setPoint(p, isPickup: false)));
+    }
+    for (final p in _recent.take(4)) {
+      chips.add(_placeChip('${p['name']}', Icons.schedule_rounded,
+          const Color(0xFF9E9E9E), () => _setPoint(p, isPickup: false)));
+    }
+    chips.add(_placeChip('Add', Icons.add_rounded, AppColors.red, _addPlace));
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(children: chips),
+    );
+  }
+
+  Widget _placeChip(String label, IconData icon, Color color, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF131313),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: RideColors.line),
+          ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 14, color: const Color(0xFF9E9E9E)),
-              const SizedBox(width: 5),
+              Icon(icon, size: 13, color: color),
+              const SizedBox(width: 6),
               Text(label,
                   style: const TextStyle(
-                      color: Color(0xFF9E9E9E),
-                      fontSize: 11,
+                      color: Colors.white,
+                      fontSize: 12,
                       fontWeight: FontWeight.w600)),
             ],
           ),
         ),
-      );
+      ),
+    );
+  }
 
-  // ⭐ v72: the Ride hero — live tracking when a ride is running, a map
-  // preview of the chosen route, or the "why ride with us" card.
-  Widget _heroCard(Map<String, dynamic>? active) {
-    if (active != null) {
-      final status = '${active['status']}';
-      final liveStatus = status == 'paid' ||
-          status == 'arrived' ||
-          status == 'ongoing';
-      return Container(
-        padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(colors: [
-            Color(0xFF2A1016),
-            Color(0xFF141414),
-          ]),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0x4DF10B1D)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  // ------------------------------------------------------ choose ride
+
+  Widget _chooseRide(AppStore store) {
+    final km = store.rideDistanceKm;
+    final opts = store.rideOptions;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Row(children: [
+            RideLabel('CHOOSE YOUR RIDE'),
+            const Spacer(),
+            if (km > 0)
               Container(
-                width: 34,
-                height: 34,
-                alignment: Alignment.center,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 decoration: BoxDecoration(
-                  color: const Color(0x26F10B1D),
-                  borderRadius: BorderRadius.circular(11),
+                  color: const Color(0xFF1A1A1A),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: RideColors.line),
                 ),
-                child: const Icon(Icons.gps_fixed_rounded,
-                    color: AppColors.red, size: 18),
+                child: Text('${km.toStringAsFixed(2)} km',
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700)),
               ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Your ride is running',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 2),
-                    Text(
-                        liveStatus
-                            ? 'The rider is sharing live location'
-                            : 'Waiting for the rider to accept',
-                        style: const TextStyle(
-                            color: Color(0xFF9E9E9E), fontSize: 11.5)),
-                  ],
-                ),
-              ),
-            ]),
-            const SizedBox(height: 13),
-            Row(children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => RideTrackingScreen(
-                              rideCode: '${active['ride_code']}'))),
-                  icon: const Icon(Icons.receipt_long_rounded, size: 16),
-                  label: const Text('TRIP DETAILS'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Color(0x33FFFFFF)),
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    textStyle: const TextStyle(
-                        fontSize: 11.5, fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => RideLiveMapScreen(
-                              rideCode: '${active['ride_code']}'))),
-                  icon: const Icon(Icons.map_rounded, size: 16),
-                  label: const Text('LIVE MAP'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.red,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    textStyle: const TextStyle(
-                        fontSize: 11.5, fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ),
-            ]),
           ],
         ),
-      );
-    }
-
-    if (_pickupLat != null && _dropLat != null) {
-      return Container(
-        height: 132,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFF262626)),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(children: [
-          FlutterMap(
-            options: MapOptions(
-              initialCenter: LatLng(
-                  (_pickupLat! + _dropLat!) / 2, (_pickupLng! + _dropLng!) / 2),
-              initialZoom: 13.5,
-            ),
-            children: [
-              TileLayer(
-                urlTemplate:
-                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.cunnect.cunnect_food',
-                maxZoom: 19,
-              ),
-              PolylineLayer(polylines: [
-                Polyline(
-                  points: [
-                    LatLng(_pickupLat!, _pickupLng!),
-                    LatLng(_dropLat!, _dropLng!),
-                  ],
-                  color: AppColors.red.withOpacity(.85),
-                  strokeWidth: 4,
-                ),
-              ]),
-              MarkerLayer(markers: [
-                Marker(
-                  point: LatLng(_pickupLat!, _pickupLng!),
-                  width: 30,
-                  height: 30,
-                  child: const Icon(Icons.trip_origin_rounded,
-                      color: Color(0xFF98E6B0), size: 22),
-                ),
-                Marker(
-                  point: LatLng(_dropLat!, _dropLng!),
-                  width: 30,
-                  height: 30,
-                  child: const Icon(Icons.location_on_rounded,
-                      color: AppColors.red, size: 26),
-                ),
-              ]),
-            ],
+        const SizedBox(height: 12),
+        // ---- time slot (compulsory) ----
+        _timeRow(),
+        const SizedBox(height: 14),
+        if (opts.isEmpty && _estimating)
+          const Center(
+              child: Padding(
+            padding: EdgeInsets.all(18),
+            child: CircularProgressIndicator(color: AppColors.red),
+          ))
+        else
+          ...opts.map((o) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _vehicleCard(context, Map<dynamic, dynamic>.from(o as Map)),
+              )),
+        const SizedBox(height: 6),
+        _extras(store),
+        const SizedBox(height: 16),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(_error!,
+                style: const TextStyle(
+                    color: Color(0xFFFF8791), fontSize: 12.5)),
           ),
-          Positioned(
-            left: 10,
-            bottom: 10,
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xE6141414),
-                borderRadius: BorderRadius.circular(9),
-              ),
-              child: const Text('Route preview',
-                  style: TextStyle(color: Colors.white, fontSize: 11)),
-            ),
-          ),
-        ]),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [
-          Color(0xFF1C1013),
-          Color(0xFF121212),
-        ]),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0x26F10B1D)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Ride across campus, the easy way',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800)),
-          const SizedBox(height: 6),
-          const Text(
-              'Pick your points, choose a vehicle and pay only after a '
-              'rider accepts.',
-              style: TextStyle(
-                  color: Color(0xFF9E9E9E), fontSize: 11.5, height: 1.5)),
-          const SizedBox(height: 12),
-          Row(children: const [
-            _HeroChip(Icons.gps_fixed_rounded, 'Live tracking'),
-            SizedBox(width: 8),
-            _HeroChip(Icons.verified_user_rounded, 'Verified partners'),
-          ]),
-        ],
-      ),
-    );
-  }
-
-  Widget _routeCard() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111111),
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: const Color(0xFF262626)),
-      ),
-      child: Column(
-        children: [
-          _row('PICKUP', _pickup.isEmpty ? 'Choose pickup point' : _pickup,
-              Icons.my_location_rounded, const Color(0xFF98E6B0), true),
-          // ⭐ v72: swap + "use my location" right where you need them
-          Row(children: [
-            const SizedBox(width: 42),
-            _miniAction(Icons.swap_vert_rounded, 'Swap', _swapPoints),
-            const SizedBox(width: 8),
-            _miniAction(Icons.gps_fixed_rounded, 'Use my location',
-                _useMyLocation),
-          ]),
-          const Divider(color: Color(0xFF202020), height: 1),
-          _row('DROP', _drop.isEmpty ? 'Choose drop point' : _drop,
-              Icons.location_on_rounded, AppColors.red, false),
-          const Divider(color: Color(0xFF202020), height: 1),
-          _timeRow(),
-        ],
-      ),
-    );
-  }
-
-  Widget _recentRow() {
-    return SizedBox(
-      height: 34,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: _recent.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (_, i) {
-          final r = _recent[i];
-          return InkWell(
-            onTap: () {
-              setState(() {
-                if (_pickup.isEmpty) {
-                  _pickup = '${r['text']}';
-                  _pickupLat = (r['lat'] as num).toDouble();
-                  _pickupLng = (r['lng'] as num).toDouble();
-                } else {
-                  _drop = '${r['text']}';
-                  _dropLat = (r['lat'] as num).toDouble();
-                  _dropLng = (r['lng'] as num).toDouble();
-                }
-              });
-              _estimate();
-            },
-            borderRadius: BorderRadius.circular(9),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-              decoration: BoxDecoration(
-                color: const Color(0xFF141414),
-                borderRadius: BorderRadius.circular(9),
-                border: Border.all(color: const Color(0xFF262626)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.history_rounded,
-                      size: 13, color: Color(0xFF8A8A8A)),
-                  const SizedBox(width: 6),
-                  Text('${r['text']}',
-                      style: const TextStyle(
-                          color: Color(0xFFB7B7BC), fontSize: 11.5)),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _tripMeta(double km) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111111),
-        borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: const Color(0xFF262626)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.straighten_rounded,
-              size: 15, color: Color(0xFF9E9E9E)),
-          const SizedBox(width: 8),
-          Text('${km.toStringAsFixed(2)} km',
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700)),
-          const SizedBox(width: 14),
-          const Spacer(),
-          const Icon(Icons.route_outlined,
-              size: 15, color: Color(0xFF98E6B0)),
-        ],
-      ),
-    );
-  }
-
-  Widget _row(String label, String value, IconData icon, Color color,
-      bool isPickup) {
-    return InkWell(
-      onTap: () => _pick(isPickup),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 13),
-        child: Row(
-          children: [
-            Container(
-              width: 30,
-              height: 30,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: color.withOpacity(.13),
-              ),
-              child: Icon(icon, color: color, size: 16),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(label,
-                      style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 9,
-                          letterSpacing: 1.6,
-                          color: Color(0xFF7A7A7A),
-                          fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 3),
-                  Text(value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          color: value.contains('Choose')
-                              ? const Color(0xFF6E6E6E)
-                              : Colors.white,
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
-            const Icon(Icons.map_rounded,
-                size: 18, color: Color(0xFF8A8A8A)),
-          ],
+        RideButton(
+          label: _busy ? 'BOOKING…' : 'CONFIRM RIDE',
+          busy: _busy,
+          icon: Icons.check_rounded,
+          onTap: _busy ? null : _book,
         ),
-      ),
+        const SizedBox(height: 9),
+        const Center(
+          child: Text('No payment now — pay after a rider accepts',
+              style: TextStyle(color: Color(0xFF6A6A6A), fontSize: 11)),
+        ),
+      ],
     );
   }
 
   Widget _timeRow() {
-    return InkWell(
-      onTap: _pickTime,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 13),
+    final missing = _when == null;
+    return GestureDetector(
+      onTap: _pickSlot,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F0F0F),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+              color: missing ? RideColors.amber.withOpacity(.7) : RideColors.line,
+              width: missing ? 1.4 : 1),
+        ),
         child: Row(
           children: [
-            Container(
-              width: 30,
-              height: 30,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFFFFD34D).withOpacity(.13),
-              ),
-              child: const Icon(Icons.schedule_rounded,
-                  color: Color(0xFFFFD34D), size: 16),
-            ),
+            Icon(Icons.schedule_rounded,
+                size: 18, color: missing ? RideColors.amber : Colors.white),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('TIME',
+                  Text(_when == null ? 'Choose the time slot' : _fmtSlot(_when!),
                       style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 9,
-                          letterSpacing: 1.6,
-                          color: Color(0xFF7A7A7A),
+                          color: missing ? RideColors.amber : Colors.white,
+                          fontSize: 13.5,
                           fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 3),
-                  Text(
-                    _when == null
-                        ? 'Choose the time slot (required)'
-                        : 'Today at ${_when!.hour.toString().padLeft(2, '0')}:${_when!.minute.toString().padLeft(2, '0')}',
-                    style: TextStyle(
-                        color: _when == null
-                            ? const Color(0xFFFFD34D)
-                            : Colors.white,
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w600)),
+                  if (missing)
+                    const Text('Required — even "leave now" must be picked',
+                        style:
+                            TextStyle(color: Color(0xFF8A8A8A), fontSize: 10.5)),
                 ],
               ),
             ),
@@ -859,538 +757,839 @@ class _RideHomeScreenState extends State<RideHomeScreen> {
     );
   }
 
-  Widget _vehicleCard(BuildContext context, Map o) {
+  Widget _vehicleCard(BuildContext context, Map<dynamic, dynamic> o) {
     final key = '${o['key']}';
     final selected = _vehicle == key;
     final fare = (o['fare'] as num?)?.toDouble() ?? 0;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: InkWell(
-        onTap: () => setState(() => _vehicle = key),
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+    final offline = o['available'] == false;
+    final tint = rideVehicleTint(key);
+    return GestureDetector(
+      onTap: () => setState(() => _vehicle = key),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+        decoration: BoxDecoration(
+          color: selected ? tint.withOpacity(.10) : const Color(0xFF101010),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+              color: selected ? tint.withOpacity(.65) : RideColors.line,
+              width: selected ? 1.6 : 1),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: tint.withOpacity(.12),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: tint.withOpacity(.25)),
+              ),
+              child: Text('${o['icon'] ?? '🚗'}',
+                  style: const TextStyle(fontSize: 24)),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text('${o['label']}',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w800)),
+                      if ('${o['seats'] ?? ''}'.isNotEmpty) ...[
+                        const SizedBox(width: 7),
+                        const Icon(Icons.person_rounded,
+                            size: 12, color: Color(0xFF8A8A8A)),
+                        Text('${o['seats']}',
+                            style: const TextStyle(
+                                color: Color(0xFF8A8A8A), fontSize: 11.5)),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                      offline
+                          ? 'Currently unavailable — book for another time'
+                          : 'AC · ${o['label']}',
+                      style: TextStyle(
+                          color: offline
+                              ? RideColors.amber
+                              : const Color(0xFF8A8A8A),
+                          fontSize: 11.5)),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text('₹${fare.toStringAsFixed(0)}',
+                    style: TextStyle(
+                        color: offline ? const Color(0xFF6A6A6A) : Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800)),
+                if (selected)
+                  Container(
+                    margin: const EdgeInsets.only(top: 5),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: tint,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text('SELECTED',
+                        style: TextStyle(
+                            color: Colors.black,
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w900)),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ----------------------------------------------------------- extras
+
+  Widget _extras(AppStore store) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RideLabel('TRIP DETAILS'),
+        const SizedBox(height: 10),
+        // read-only number
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
           decoration: BoxDecoration(
-            gradient: selected
-                ? const LinearGradient(colors: [
-                    Color(0xFF24121A),
-                    Color(0xFF141414),
-                  ])
-                : null,
-            color: selected ? null : const Color(0xFF111111),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-                color: selected ? AppColors.red : const Color(0xFF242424),
-                width: selected ? 1.4 : 1),
+            color: const Color(0xFF0F0F0F),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: RideColors.line),
           ),
           child: Row(
             children: [
-              Container(
-                width: 46,
-                height: 46,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1A1A),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text('${o['icon']}',
-                    style: const TextStyle(fontSize: 24)),
-              ),
-              const SizedBox(width: 13),
+              const Icon(Icons.verified_user_rounded,
+                  size: 15, color: RideColors.mint),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Text('${o['label']}',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14.5,
-                                fontWeight: FontWeight.w800)),
-                        const SizedBox(width: 7),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF242424),
-                            borderRadius: BorderRadius.circular(5),
-                          ),
-                          child: Text('${o['seats']} seats',
-                              style: const TextStyle(
-                                  color: Color(0xFF9E9E9E), fontSize: 9.5)),
-                        ),
-                        // ⭐ v72: cheapest ride gets a value badge
-                        if (_bestValueKey() == key) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0x26F10B1D),
-                              borderRadius: BorderRadius.circular(5),
-                              border: Border.all(
-                                  color: const Color(0x4DF10B1D)),
-                            ),
-                            child: const Text('BEST VALUE',
-                                style: TextStyle(
-                                    color: Color(0xFFFF9CA5),
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w800)),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                        o['available'] == false
-                            ? 'Currently unavailable — book for another time'
-                            : 'AC',
+                    const Text('Your number',
                         style: TextStyle(
-                            color: o['available'] == false
-                                ? const Color(0xFFFFD34D)
-                                : const Color(0xFF8A8A8A),
-                            fontSize: 11.5)),
+                            color: Color(0xFF7A7A7A), fontSize: 10.5)),
+                    const SizedBox(height: 2),
+                    Text(
+                        store.customerPhone.isEmpty
+                            ? 'Not on your profile'
+                            : store.customerPhone,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700)),
                   ],
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text('₹${fare.toStringAsFixed(0)}',
+              const Text('from profile',
+                  style: TextStyle(color: Color(0xFF6A6A6A), fontSize: 10.5)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        // booking for someone else
+        GestureDetector(
+          onTap: () => setState(() => _forOther = !_forOther),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F0F0F),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: RideColors.line),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.person_add_alt_rounded,
+                    size: 16, color: Color(0xFF9E9E9E)),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text('Booking for someone else?',
                       style: TextStyle(
-                          color: o['available'] == false
-                              ? const Color(0xFF6A6A6A)
-                              : Colors.white,
-                          fontSize: 17,
+                          color: Colors.white,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700)),
+                ),
+                Switch(
+                  value: _forOther,
+                  activeColor: AppColors.red,
+                  onChanged: (v) => setState(() => _forOther = v),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_forOther) ...[
+          const SizedBox(height: 9),
+          TextField(
+            controller: _otherName,
+            textCapitalization: TextCapitalization.words,
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+            decoration: _sheetDec('Their name (optional)'),
+          ),
+          const SizedBox(height: 9),
+          TextField(
+            controller: _otherPhone,
+            keyboardType: TextInputType.phone,
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+            decoration: _sheetDec('Their contact number'),
+          ),
+        ],
+        const SizedBox(height: 10),
+        // split the fare with friends
+        GestureDetector(
+          onTap: () => setState(() => _splitWithFriends = !_splitWithFriends),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F0F0F),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: RideColors.line),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.groups_rounded,
+                    size: 16, color: RideColors.violet),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text('Split the fare with friends',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700)),
+                ),
+                Switch(
+                  value: _splitWithFriends,
+                  activeColor: RideColors.violet,
+                  onChanged: (v) => setState(() => _splitWithFriends = v),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_splitWithFriends) ...[
+          const SizedBox(height: 9),
+          ..._pax.asMap().entries.map((e) {
+            final i = e.key;
+            final p = e.value;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F0F0F),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: RideColors.line),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text('${p['name']}',
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 12.5)),
+                  ),
+                  Text('₹${(p['amount'] as num).toStringAsFixed(0)}',
+                      style: const TextStyle(
+                          color: RideColors.violet,
+                          fontSize: 12.5,
                           fontWeight: FontWeight.w800)),
-                  const Text('approx',
-                      style:
-                          TextStyle(color: Color(0xFF6A6A6A), fontSize: 10)),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () => setState(() => _pax.removeAt(i)),
+                    child: const Icon(Icons.close_rounded,
+                        size: 16, color: Color(0xFF8A8A8A)),
+                  ),
                 ],
+              ),
+            );
+          }),
+          SizedBox(
+            width: double.infinity,
+            height: 42,
+            child: OutlinedButton.icon(
+              onPressed: _addPax,
+              icon: const Icon(Icons.person_add_rounded, size: 16),
+              label: const Text('ADD A FRIEND',
+                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: RideColors.violet,
+                side: BorderSide(color: RideColors.violet.withOpacity(.5)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 10),
+        TextField(
+          controller: _notes,
+          style: const TextStyle(color: Colors.white, fontSize: 13),
+          decoration: _sheetDec('Note for the rider (optional)'),
+        ),
+      ],
+    );
+  }
+
+  // --------------------------------------------------------- stats
+
+  Widget _statsStrip(AppStore store) {
+    final s = store.rideStudentStats;
+    final rides = '${s['rides'] ?? 0}';
+    final km = ((s['km'] as num?)?.toDouble() ?? 0).toStringAsFixed(0);
+    final spent = ((s['spent'] as num?)?.toDouble() ?? 0).toStringAsFixed(0);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RideLabel('YOUR RIDING'),
+        const SizedBox(height: 10),
+        RideGlass(
+          radius: 18,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+          child: Row(
+            children: [
+              RideStat(value: rides, label: 'RIDES'),
+              Container(width: 1, height: 32, color: RideColors.line),
+              RideStat(value: km, label: 'KILOMETRES'),
+              Container(width: 1, height: 32, color: RideColors.line),
+              RideStat(value: '₹$spent', label: 'SPENT', color: RideColors.mint),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        RideGlass(
+          radius: 18,
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const RideHistoryScreen())),
+          child: RideTile(
+            icon: Icons.history_rounded,
+            tint: Colors.white,
+            title: 'Ride history',
+            subtitle: 'Every ride, with its receipt',
+            trailing: const Icon(Icons.chevron_right_rounded,
+                size: 18, color: Color(0xFF8A8A8A)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------- safety
+
+  Widget _safetyCard() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RideLabel('SAFETY'),
+        const SizedBox(height: 10),
+        RideGlass(
+          radius: 18,
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          child: Column(
+            children: [
+              RideTile(
+                icon: Icons.shield_rounded,
+                tint: RideColors.mint,
+                title: 'Emergency contacts',
+                subtitle: _contacts.isEmpty
+                    ? 'Add the people to call in an emergency'
+                    : _contacts.map((c) => '${c['name']}').join(', '),
+                trailing: const Icon(Icons.chevron_right_rounded,
+                    size: 18, color: Color(0xFF8A8A8A)),
+                onTap: _manageContacts,
+              ),
+              RideTile(
+                icon: Icons.share_location_rounded,
+                tint: RideColors.sky,
+                title: 'Share my trip',
+                subtitle: 'Send your live route to a friend or to family',
+                trailing: const Icon(Icons.chevron_right_rounded,
+                    size: 18, color: Color(0xFF8A8A8A)),
+                onTap: _shareTrip,
               ),
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 
-  Widget _emptyHint() {
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111111),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF262626)),
-      ),
-      child: const Column(
-        children: [
-          Icon(Icons.route_rounded, color: Color(0xFF4A4A4A), size: 30),
-          SizedBox(height: 12),
-          Text(
-            'Pick your pickup and drop points —\nfares for every ride appear '
-            'here.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-                color: Color(0xFF8A8A8A), fontSize: 12.5, height: 1.5),
+  // ---------------------------------------------------------- actions
+
+  Future<void> _openPicker({required bool isPickup}) async {
+    final res = await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => RideMapPickerScreen(
+              title: isPickup ? 'Pickup location' : 'Drop location',
+              hint: isPickup ? 'Where should the rider come?' : 'Where to?',
+              initial: isPickup
+                  ? (_pickupLat != null
+                      ? LatLng(_pickupLat!, _pickupLng!)
+                      : null)
+                  : (_dropLat != null ? LatLng(_dropLat!, _dropLng!) : null),
+            )));
+    if (res is Map && mounted) {
+      final lat = (res['lat'] as num).toDouble();
+      final lng = (res['lng'] as num).toDouble();
+      setState(() {
+        _error = null;
+        if (isPickup) {
+          _pickup = '${res['text']}';
+          _pickupLat = lat;
+          _pickupLng = lng;
+        } else {
+          _drop = '${res['text']}';
+          _dropLat = lat;
+          _dropLng = lng;
+        }
+      });
+      await _rememberRecent('${res['text']}', lat, lng);
+      _estimate();
+    }
+  }
+
+  void _setPoint(Map<String, dynamic> p, {required bool isPickup}) {
+    final lat = (p['lat'] as num).toDouble();
+    final lng = (p['lng'] as num).toDouble();
+    setState(() {
+      if (isPickup) {
+        _pickup = '${p['name']}';
+        _pickupLat = lat;
+        _pickupLng = lng;
+      } else {
+        _drop = '${p['name']}';
+        _dropLat = lat;
+        _dropLng = lng;
+      }
+      _error = null;
+    });
+    _mapController.move(LatLng(lat, lng), 15);
+    _estimate();
+  }
+
+  Future<void> _addPlace() async {
+    final nameCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF121212),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Save a place',
+            style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: TextField(
+          controller: nameCtrl,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'e.g. Hostel, Main Gate, Library',
+            hintStyle: TextStyle(color: Color(0xFF6A6A6A)),
           ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel',
+                  style: TextStyle(color: Color(0xFF8A8A8A)))),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Pick on map',
+                  style: TextStyle(color: AppColors.red))),
         ],
       ),
     );
+    if (ok != true) return;
+    final res = await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => RideMapPickerScreen(
+              title: 'Save ${nameCtrl.text.trim()}',
+              hint: 'Pin the exact spot',
+            )));
+    if (res is Map && mounted) {
+      _saved.add({
+        'name': nameCtrl.text.trim().isEmpty
+            ? '${res['text']}'
+            : nameCtrl.text.trim(),
+        'lat': (res['lat'] as num).toDouble(),
+        'lng': (res['lng'] as num).toDouble(),
+      });
+      _writeList(_kSaved, _saved);
+      if (mounted) setState(() {});
+    }
   }
 
-  Widget _historyRow(Map<String, dynamic> r) {
-    final done = '${r['status']}' == 'completed';
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.fromLTRB(13, 11, 13, 11),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111111),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF202020)),
+  Future<void> _saveCurrentDrop() async {
+    if (_dropLat == null) return;
+    _saved.add({'name': _drop, 'lat': _dropLat, 'lng': _dropLng});
+    _writeList(_kSaved, _saved);
+    if (mounted) {
+      setState(() {});
+      showCunnectToast(context, '$_drop saved');
+    }
+  }
+
+  Future<void> _useMyLocation({required bool forPickup}) async {
+    if (!mounted) return;
+    setState(() => _locating = true);
+    try {
+      final on = await Geolocator.isLocationServiceEnabled();
+      if (!on) {
+        _toast('Turn on location services.');
+        return;
+      }
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        _toast('Location permission is needed.');
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.bestForNavigation);
+      final name = await reverseGeocodeName(pos.latitude, pos.longitude);
+      if (!mounted) return;
+      setState(() {
+        final text = name.isNotEmpty
+            ? name
+            : 'My location (${pos.latitude.toStringAsFixed(5)}, '
+                '${pos.longitude.toStringAsFixed(5)})';
+        if (forPickup) {
+          _pickup = text;
+          _pickupLat = pos.latitude;
+          _pickupLng = pos.longitude;
+        } else {
+          _drop = text;
+          _dropLat = pos.latitude;
+          _dropLng = pos.longitude;
+        }
+        _error = null;
+      });
+      _mapController.move(LatLng(pos.latitude, pos.longitude), 17);
+      _estimate();
+    } catch (_) {
+      _toast('Could not read your location.');
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
+  Future<void> _pickSlot() async {
+    final now = DateTime.now();
+    final day = await showDatePicker(
+      context: context,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 30)),
+      initialDate: _when ?? now,
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.dark(primary: AppColors.red),
+        ),
+        child: child!,
       ),
-      child: Row(
-        children: [
-          Text('${r['vehicle_icon']}', style: const TextStyle(fontSize: 17)),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('${r['pickup_text']} → ${r['drop_text']}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 12.5)),
-                const SizedBox(height: 2),
-                Text(
-                    '${r['distance_km']} km · ${done ? 'completed' : '${r['status']}'}',
-                    style: const TextStyle(
-                        color: Color(0xFF7A7A7A), fontSize: 10.5)),
-              ],
-            ),
-          ),
-          Text('₹${((r['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
-              style: TextStyle(
-                  color: done
-                      ? const Color(0xFF98E6B0)
-                      : const Color(0xFF9E9E9E),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800)),
+    );
+    if (day == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_when ?? now),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.dark(primary: AppColors.red),
+        ),
+        child: child!,
+      ),
+    );
+    if (time == null || !mounted) return;
+    setState(() {
+      _when = DateTime(day.year, day.month, day.day, time.hour, time.minute);
+      _error = null;
+    });
+    _estimate();
+  }
+
+  Future<void> _estimate() async {
+    if (_pickupLat == null || _dropLat == null) return;
+    if (!mounted) return;
+    setState(() {
+      _estimating = true;
+      _error = null;
+    });
+    final store = context.read<AppStore>();
+    final err = await store.rideEstimate(
+      pickupLat: _pickupLat!,
+      pickupLng: _pickupLng!,
+      dropLat: _dropLat!,
+      dropLng: _dropLng!,
+      scheduledAt: _when?.toIso8601String() ?? '',
+    );
+    if (!mounted) return;
+    setState(() {
+      _estimating = false;
+      if (err != null) _error = err;
+    });
+  }
+
+  Future<void> _addPax() async {
+    final name = TextEditingController();
+    final amount = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF121212),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Add a friend',
+            style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+                controller: name,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                    hintText: 'Name',
+                    hintStyle: TextStyle(color: Color(0xFF6A6A6A)))),
+            TextField(
+                controller: amount,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                    hintText: 'Their share (₹)',
+                    hintStyle: TextStyle(color: Color(0xFF6A6A6A)))),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel',
+                  style: TextStyle(color: Color(0xFF8A8A8A)))),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Add',
+                  style: TextStyle(color: AppColors.red))),
         ],
       ),
     );
+    if (ok != true) return;
+    final amt = double.tryParse(amount.text.trim()) ?? 0;
+    if (name.text.trim().isEmpty || amt <= 0) {
+      _toast('Enter a name and their share.');
+      return;
+    }
+    setState(() => _pax.add({'name': name.text.trim(), 'amount': amt}));
   }
 
-  Widget _sectionLabel(String t) => Text(t,
-      style: const TextStyle(
-          fontFamily: 'monospace',
-          fontSize: 10,
-          letterSpacing: 2,
-          color: Color(0xFF7A7A7A),
-          fontWeight: FontWeight.w700));
-
-  // --------------------- Uber-style booking sheet ---------------------
-
-  void _openBookingSheet() {
-    if (_pickupLat == null || _dropLat == null) {
-      setState(() => _error = 'Pick the pickup and drop points on the map.');
+  Future<void> _book() async {
+    if (_busy) return;
+    if (_when == null) {
+      setState(() => _error = 'Choose the time slot for this ride first.');
+      await _pickSlot();
+      return;
+    }
+    if (_forOther &&
+        _otherPhone.text.trim().replaceAll(RegExp(r'\D'), '').length < 8) {
+      setState(() => _error = 'Enter the contact number to call.');
       return;
     }
     final store = context.read<AppStore>();
-    final km = store.rideDistanceKm;
-    final opts = store.rideOptions;
-    Map? chosen;
-    for (final o in opts) {
-      if ('${(o as Map)['key']}' == _vehicle) chosen = o;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final res = await store.rideBook(
+      vehicleType: _vehicle,
+      pickupText: _pickup,
+      pickupLat: _pickupLat!,
+      pickupLng: _pickupLng!,
+      dropText: _drop,
+      dropLat: _dropLat!,
+      dropLng: _dropLng!,
+      phone: store.customerPhone,
+      scheduledAt: _when!.toIso8601String(),
+      notes: _notes.text.trim(),
+      forOther: _forOther,
+      otherName: _otherName.text.trim(),
+      otherPhone: _otherPhone.text.trim(),
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (res['ok'] != true) {
+      setState(() => _error = '${res['error']}');
+      return;
     }
-    final fare = ((chosen?['fare'] as num?)?.toDouble() ?? 0);
-    if (_phone.text.trim().isEmpty) _phone.text = store.customerPhone;
+    final ride = Map<String, dynamic>.from(res['ride'] as Map? ?? {});
+    final code = '${ride['ride_code']}';
+    // ⭐ the fare split is stored on the ride once it exists
+    for (final p in _pax) {
+      await store.ridePaxAdd(code,
+          name: '${p['name']}',
+          phone: '',
+          amount: (p['amount'] as num).toDouble());
+    }
+    if (!mounted) return;
+    if ('${res['message'] ?? ''}'.isNotEmpty) {
+      _toast('${res['message']}');
+    }
+    await Navigator.of(context).pushReplacement(MaterialPageRoute(
+        builder: (_) => RideTrackingScreen(rideCode: code)));
+    return;
+  }
 
-    showModalBottomSheet(
+  void _followActive() {
+    final ride = context.read<AppStore>().activeRide;
+    if (ride == null) return;
+    final lat = (ride['pickup_lat'] as num?)?.toDouble();
+    final lng = (ride['pickup_lng'] as num?)?.toDouble();
+    if (lat != null && lng != null) {
+      _mapController.move(LatLng(lat, lng), 15);
+    }
+  }
+
+  Future<void> _shareTrip() async {
+    final ride = context.read<AppStore>().activeRide;
+    final when = _when == null ? '' : ' at ${_fmtSlot(_when!)}';
+    final where = _pickup.isNotEmpty && _drop.isNotEmpty
+        ? '$_pickup → $_drop'
+        : (ride != null
+            ? '${ride['pickup_text']} → ${ride['drop_text']}'
+            : 'my CUnnect ride');
+    final link = _pickupLat != null
+        ? 'https://maps.google.com/?q=$_pickupLat,$_pickupLng'
+        : 'https://cunnect.online';
+    final text = 'I am taking a CUnnect ride$when — $where. Live: $link';
+    await openExternalUrl(
+        'https://wa.me/?text=${Uri.encodeComponent(text)}');
+  }
+
+  Future<void> _manageContacts() async {
+    final name = TextEditingController();
+    final phone = TextEditingController();
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetCtx) => StatefulBuilder(
-        builder: (sheetCtx, setSheet) => Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF121212),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-          ),
-          padding: EdgeInsets.fromLTRB(
-              18, 14, 18, 18 + MediaQuery.of(sheetCtx).viewInsets.bottom),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: RideSheetShell(
+          initial: 0.5,
+          minHeight: 0.3,
+          child: StatefulBuilder(builder: (ctx, setS) {
+            return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF3A3A3A),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text('CONFIRM YOUR RIDE',
-                    style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 10.5,
-                        letterSpacing: 2,
-                        color: Color(0xFF7A7A7A),
-                        fontWeight: FontWeight.w700)),
-                const SizedBox(height: 14),
-                // route
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Column(
-                      children: [
-                        const Icon(Icons.my_location_rounded,
-                            size: 16, color: Color(0xFF98E6B0)),
-                        Container(
-                          width: 1,
-                          height: 22,
-                          color: const Color(0xFF303030),
-                        ),
-                        const Icon(Icons.location_on_rounded,
-                            size: 16, color: AppColors.red),
-                      ],
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(_pickup,
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 13.5)),
-                          const SizedBox(height: 14),
-                          Text(_drop,
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 13.5)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                // vehicle + fare
-                Container(
-                  padding: const EdgeInsets.all(13),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0D0D0D),
-                    borderRadius: BorderRadius.circular(13),
-                    border: Border.all(color: const Color(0xFF262626)),
-                  ),
-                  child: Row(
-                    children: [
-                      Text('${chosen?['icon'] ?? '🚗'}',
-                          style: const TextStyle(fontSize: 24)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('${chosen?['label'] ?? 'Ride'}',
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800)),
-                            const SizedBox(height: 2),
-                            Text(
-                                '${km.toStringAsFixed(2)} km · '
-                                '${_when == null ? 'Pick a time slot' : _fmtSlot(_when!)}',
-                                style: const TextStyle(
-                                    color: Color(0xFF9E9E9E), fontSize: 11)),
-                          ],
-                        ),
-                      ),
-                      Text('₹${fare.toStringAsFixed(0)}',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800)),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-                // ⭐ v73: your number comes from your CUnnect profile —
-                // it cannot be typed or changed here.
-                _sheetLabel('YOUR NUMBER (THE RIDER WILL CALL THIS)'),
-                const SizedBox(height: 6),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 13, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0D0D0D),
-                    borderRadius: BorderRadius.circular(11),
-                    border: Border.all(color: const Color(0xFF262626)),
-                  ),
-                  child: Row(children: [
-                    const Icon(Icons.verified_user_rounded,
-                        size: 15, color: Color(0xFF98E6B0)),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                          _phone.text.trim().isEmpty
-                              ? 'Not on your profile'
-                              : _phone.text.trim(),
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700)),
-                    ),
-                    const Text('from profile',
-                        style:
-                            TextStyle(color: Color(0xFF6A6A6A), fontSize: 10.5)),
-                  ]),
-                ),
-                const SizedBox(height: 14),
-                // ⭐ v73: booking for someone else?
-                Row(
-                  children: [
-                    const Icon(Icons.person_add_alt_rounded,
-                        size: 15, color: Color(0xFF9E9E9E)),
-                    const SizedBox(width: 9),
-                    const Expanded(
-                      child: Text('Booking for someone else?',
-                          style: TextStyle(
-                              color: Color(0xFFEDEDF0),
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700)),
-                    ),
-                    Switch(
-                      value: _forOther,
-                      activeColor: AppColors.red,
-                      onChanged: (v) => setSheet(() {
-                        _forOther = v;
-                        setState(() => _forOther = v);
-                      }),
-                    ),
-                  ],
-                ),
-                if (_forOther) ...[
-                  const SizedBox(height: 4),
-                  TextField(
-                    controller: _otherName,
-                    textCapitalization: TextCapitalization.words,
-                    style: const TextStyle(color: Colors.white, fontSize: 13.5),
-                    decoration: _sheetDec('Their name (optional)'),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _otherPhone,
-                    keyboardType: TextInputType.phone,
-                    style: const TextStyle(color: Colors.white, fontSize: 13.5),
-                    decoration: _sheetDec('Their contact number'),
-                  ),
-                ],
-                const SizedBox(height: 14),
-                _sheetLabel('NOTE FOR THE RIDER (OPTIONAL)'),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: _notes,
-                  style: const TextStyle(color: Colors.white, fontSize: 13.5),
-                  decoration: _sheetDec('e.g. I am at the main gate'),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  height: 52,
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      if (_busy) return;
-                      // ⭐ v73: the time slot is COMPULSORY — even "right
-                      // now" has to be chosen by hand.
-                      if (_when == null) {
-                        showCunnectToast(context,
-                            'Choose the time slot for this ride first.');
-                        return;
-                      }
-                      if (_forOther &&
-                          _otherPhone.text.trim().replaceAll(RegExp(r'\D'), '').length <
-                              8) {
-                        showCunnectToast(
-                            context, 'Enter the contact number to call.');
-                        return;
-                      }
-                      final phone = _phone.text.trim();
-                      Navigator.pop(sheetCtx);
-                      setState(() => _busy = true);
-                      final res = await store.rideBook(
-                        vehicleType: _vehicle,
-                        pickupText: _pickup,
-                        pickupLat: _pickupLat!,
-                        pickupLng: _pickupLng!,
-                        dropText: _drop,
-                        dropLat: _dropLat!,
-                        dropLng: _dropLng!,
-                        phone: phone,
-                        scheduledAt: _when!.toIso8601String(),
-                        notes: _notes.text.trim(),
-                        forOther: _forOther,
-                        otherName: _otherName.text.trim(),
-                        otherPhone: _otherPhone.text.trim(),
-                      );
-                      if (!mounted) return;
-                      setState(() => _busy = false);
-                      if (res['ok'] != true) {
-                        setState(() => _error = '${res['error']}');
-                        return;
-                      }
-                      final ride =
-                          Map<String, dynamic>.from(res['ride'] as Map? ?? {});
-                      Navigator.of(context).pushReplacement(MaterialPageRoute(
-                          builder: (_) => RideTrackingScreen(
-                              rideCode: '${ride['ride_code']}')));
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.red,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14)),
-                    ),
-                    child: const Text('CONFIRM BOOKING',
-                        style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.2)),
-                  ),
-                ),
-                const SizedBox(height: 8),
                 const Center(
-                  child: Text('No payment now — pay after a rider accepts',
+                  child: Text('Emergency contacts',
                       style: TextStyle(
-                          color: Color(0xFF6A6A6A), fontSize: 11)),
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800)),
                 ),
+                const SizedBox(height: 6),
+                const Center(
+                  child: Text('These stay on your phone only',
+                      style: TextStyle(
+                          color: Color(0xFF7A7A7A), fontSize: 11.5)),
+                ),
+                const SizedBox(height: 16),
+                ..._contacts.asMap().entries.map((e) => RideTile(
+                      icon: Icons.person_rounded,
+                      tint: RideColors.mint,
+                      title: '${e.value['name']}',
+                      subtitle: '${e.value['phone']}',
+                      trailing: GestureDetector(
+                        onTap: () async {
+                          _contacts.removeAt(e.key);
+                          _writeList(_kContacts, _contacts);
+                          setS(() {});
+                          if (mounted) setState(() {});
+                        },
+                        child: const Icon(Icons.delete_outline_rounded,
+                            size: 17, color: Color(0xFF8A8A8A)),
+                      ),
+                      onTap: () => openExternalUrl(
+                          'tel:${e.value['phone']}'),
+                    )),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: name,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  decoration: _sheetDec('Name'),
+                ),
+                const SizedBox(height: 9),
+                TextField(
+                  controller: phone,
+                  keyboardType: TextInputType.phone,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  decoration: _sheetDec('Phone number'),
+                ),
+                const SizedBox(height: 14),
+                RideButton(
+                  label: 'ADD CONTACT',
+                  icon: Icons.add_rounded,
+                  onTap: () async {
+                    if (name.text.trim().isEmpty ||
+                        phone.text.trim().length < 8) {
+                      _toast('Enter a name and a phone number.');
+                      return;
+                    }
+                    _contacts.add({
+                      'name': name.text.trim(),
+                      'phone': phone.text.trim(),
+                    });
+                    _writeList(_kContacts, _contacts);
+                    name.clear();
+                    phone.clear();
+                    setS(() {});
+                    if (mounted) setState(() {});
+                  },
+                ),
+                const SizedBox(height: 10),
               ],
-            ),
-          ),
+            );
+          }),
         ),
       ),
     );
+  }
+
+  // ---------------------------------------------------------- helpers
+
+  String _fmtSlot(DateTime t) {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
+    return '${days[t.weekday - 1]} $h:$m';
   }
 
   InputDecoration _sheetDec(String hint) => InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(color: Color(0xFF6E6E6E), fontSize: 12.5),
+        hintStyle: const TextStyle(color: Color(0xFF6A6A6A), fontSize: 13),
         filled: true,
-        fillColor: const Color(0xFF0D0D0D),
+        fillColor: const Color(0xFF0F0F0F),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(11),
-          borderSide: const BorderSide(color: Color(0xFF303030)),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: RideColors.line),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(11),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.red),
         ),
       );
 
-  Widget _sheetLabel(String t) => Text(t,
-      style: const TextStyle(
-          fontFamily: 'monospace',
-          fontSize: 9,
-          letterSpacing: 1.6,
-          color: Color(0xFF7A7A7A),
-          fontWeight: FontWeight.w700));
-
-
-}
-
-/// Small pill used inside the Ride hero card.
-class _HeroChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-
-  const _HeroChip(this.icon, this.label);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0x1AFFFFFF),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0x1FFFFFFF)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: const Color(0xFFFF9CA5)),
-          const SizedBox(width: 6),
-          Text(label,
-              style: const TextStyle(color: Color(0xFFD8D8DC), fontSize: 11)),
-        ],
-      ),
-    );
+  void _toast(String msg) {
+    if (!mounted) return;
+    showCunnectToast(context, msg);
   }
 }

@@ -9,12 +9,16 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
+import '../../services/app_portal.dart';
 import '../../services/app_store.dart';
+import '../../services/ride_events.dart';
+import '../../services/ring_service.dart';
 import '../../services/open_url_stub.dart'
     if (dart.library.html) '../../services/open_url_web.dart'
     if (dart.library.io) '../../services/open_url_mobile.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
+import '../../widgets/ride_ui.dart';
 import 'ride_home_screen.dart';
 import 'ride_live_map_screen.dart';
 
@@ -51,9 +55,17 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
   Map<String, dynamic>? _qr;
   bool _qrLoading = false;
 
+  // ⭐ v74: live events (accepted / paid / arrived / started / completed)
+  StreamSubscription<RideEvent>? _events;
+  bool _sosBusy = false;
+
   @override
   void initState() {
     super.initState();
+    // ⭐ v75: this is the STUDENT ride screen — rider pushes must not
+    // raise their popups here (and the other way round).
+    ActivePortal.set(AppPortal.student);
+    RingService.stop();
     // ⭐ INSTANT: paint the last known copy first, then refresh.
     final cached = context.read<AppStore>().cachedRide();
     if (cached != null && '${cached['ride_code']}' == widget.rideCode) {
@@ -63,10 +75,20 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
     _refresh();
     // ⭐ real-time: 5s while the ride is live, slower once finished.
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _refresh());
+    // ⭐ v74: refresh the moment a push about this ride arrives, and show
+    // any event the user has not seen yet (e.g. tapped while closed).
+    _events = RideEvents.stream.listen((ev) {
+      if (ev.code.isNotEmpty && ev.code != widget.rideCode) return;
+      _refresh();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) RideEvents.consumePending(context);
+    });
   }
 
   @override
   void dispose() {
+    _events?.cancel();
     _timer?.cancel();
     _gps?.cancel();
     _txn.dispose();
@@ -129,17 +151,21 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
 
   Future<void> _loadQr(num amount) async {
     if (amount <= 0) return;
-    final ride = _ride;
-    if (ride == null) return;
-    final vendorId = ride['vendor_id'];
-    if (vendorId == null) return;
     setState(() => _qrLoading = true);
-    final qr = await context.read<AppStore>().fetchUpiQr(
-        vendorId is int ? vendorId : int.tryParse('$vendorId') ?? 0, amount);
+    // ⭐ v75: the ride QR is built from the RIDER's UPI id with the exact
+    // amount baked in — scanning fills the fare, it cannot be edited.
+    final qr =
+        await context.read<AppStore>().fetchRideQr(widget.rideCode, amount);
     if (!mounted) return;
     setState(() {
       _qr = qr;
       _qrLoading = false;
+      if (qr == null) {
+        _error = 'Could not build the QR. Check your connection and try '
+            'again, or pay the exact amount with the UPI ID below.';
+      } else {
+        _error = null;
+      }
     });
   }
 
@@ -281,6 +307,16 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                       _otpCard(ride),
                     ],
                     if (status == 'completed') _completedCard(ride),
+                    if (_paxOf(ride).isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      _paxCard(ride),
+                    ],
+                    if (status != 'completed' &&
+                        status != 'cancelled' &&
+                        status != 'rejected') ...[
+                      const SizedBox(height: 14),
+                      _safetyCard(ride),
+                    ],
                     if (status == 'rejected' || status == 'cancelled') ...[
                       const SizedBox(height: 14),
                       SizedBox(
@@ -542,6 +578,13 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
               'Please book the ride for another time slot.'),
     };
     final m = map[status] ?? ('Ride $status', '');
+    // ⭐ v75: nothing is automatic — the rider confirms the payment himself
+    // before the trip can move on.
+    final waiting = status == 'paid' && ride['payment_confirmed'] != true;
+    final head = waiting ? 'Payment sent — rider confirming ⏳' : m.$1;
+    final sub = waiting
+        ? 'Your rider is checking the payment and will start the trip.'
+        : m.$2;
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
       decoration: BoxDecoration(
@@ -555,13 +598,13 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(m.$1,
+          Text(head,
               style: const TextStyle(
                   color: Colors.white,
                   fontSize: 18,
                   fontWeight: FontWeight.w800)),
           const SizedBox(height: 4),
-          Text(m.$2,
+          Text(sub,
               style: const TextStyle(
                   color: AppColors.muted, fontSize: 12.5, height: 1.45)),
         ],
@@ -959,6 +1002,11 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
   Widget _qrBlock(Map<String, dynamic> qr) {
     final b64 = '${qr['qr_b64'] ?? ''}';
     final upi = '${qr['upi_id'] ?? ''}';
+    final link = '${qr['upi_link'] ?? ''}';
+    final amtTxt = qr['amount'] == null ? '' : '${qr['amount']}';
+    final payLabel =
+        amtTxt.isEmpty ? 'PAY IN A UPI APP' : 'PAY ₹$amtTxt IN A UPI APP';
+    final lockTxt = amtTxt.isEmpty ? 'the fare shown' : '₹$amtTxt';
     return Column(
       children: [
         if (b64.isNotEmpty)
@@ -1000,6 +1048,35 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
         const SizedBox(height: 4),
         const Text('tap the QR to enlarge',
             style: TextStyle(color: Color(0xFF6A6A6A), fontSize: 10.5)),
+        // ⭐ v75: one tap opens any UPI app with the amount already filled
+        if (link.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => openExternalUrl(link),
+                icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                label: Text(payLabel,
+                    style: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w800)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.red),
+                  foregroundColor: AppColors.red,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            'The amount is locked — pay exactly $lockTxt.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xFF6A6A6A), fontSize: 10.5),
+          ),
+        ),
       ],
     );
   }
@@ -1147,15 +1224,65 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
           ),
           const SizedBox(height: 12),
           const Text(
-            'Your rider is at the pickup point. Read this OTP out to '
+            'Your rider is at the pickup point. Share this OTP with '
             'him — he enters it and your ride starts.',
             textAlign: TextAlign.center,
             style: TextStyle(
                 color: Color(0xFF9E9E9E), fontSize: 12, height: 1.5),
           ),
+          if (otp.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: otp));
+                      if (context.mounted) {
+                        showCunnectToast(context, 'OTP copied');
+                      }
+                    },
+                    icon: const Icon(Icons.copy_rounded, size: 15),
+                    label: const Text('COPY',
+                        style: TextStyle(
+                            fontSize: 11.5, fontWeight: FontWeight.w800)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Color(0xFF343434)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(11)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _shareOtp(otp),
+                    icon: const Icon(Icons.share_rounded, size: 15),
+                    label: const Text('SHARE',
+                        style: TextStyle(
+                            fontSize: 11.5, fontWeight: FontWeight.w800)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFFFD34D),
+                      side: const BorderSide(color: Color(0xFFFFD34D)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(11)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  /// ⭐ v74: one tap and the rider has the OTP (no reading it out).
+  Future<void> _shareOtp(String otp) async {
+    final text = 'My CUnnect ride OTP is $otp';
+    await openExternalUrl(
+        'https://wa.me/?text=${Uri.encodeComponent(text)}');
   }
 
   Widget _completedCard(Map<String, dynamic> ride) {
@@ -1261,4 +1388,174 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
       ),
     );
   }
+
+  // ------------------------------ v74 --------------------------------
+
+  List<Map<String, dynamic>> _paxOf(Map<String, dynamic> ride) =>
+      ((ride['pax'] as List?) ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+
+  /// ⭐ v74: who is paying what when the fare is split between friends.
+  Widget _paxCard(Map<String, dynamic> ride) {
+    final pax = _paxOf(ride);
+    final paidSum = pax.fold<double>(
+        0, (t, p) => t + ((p['paid'] == true) ? (p['amount'] as num).toDouble() : 0));
+    final total = pax.fold<double>(
+        0, (t, p) => t + ((p['amount'] as num?)?.toDouble() ?? 0));
+    return RideGlass(
+      radius: 18,
+      padding: const EdgeInsets.fromLTRB(15, 15, 15, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const RideLabel('SPLIT WITH FRIENDS'),
+              const Spacer(),
+              Text('₹${paidSum.toStringAsFixed(0)} / ₹${total.toStringAsFixed(0)}',
+                  style: const TextStyle(
+                      color: RideColors.violet,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...pax.map((p) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    Icon(
+                        p['paid'] == true
+                            ? Icons.check_circle_rounded
+                            : Icons.radio_button_unchecked_rounded,
+                        size: 16,
+                        color: p['paid'] == true
+                            ? RideColors.mint
+                            : const Color(0xFF6A6A6A)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text('${p['name']}',
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 13)),
+                    ),
+                    Text('₹${(p['amount'] as num).toStringAsFixed(0)}',
+                        style: TextStyle(
+                            color: p['paid'] == true
+                                ? RideColors.mint
+                                : Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800)),
+                  ],
+                ),
+              )),
+        ],
+      ),
+    );
+  }
+
+  /// ⭐ v74: SOS + share my trip — the safety net Ola/Uber do not give
+  /// you on a campus ride.
+  Widget _safetyCard(Map<String, dynamic> ride) {
+    return RideGlass(
+      radius: 18,
+      padding: const EdgeInsets.fromLTRB(15, 15, 15, 15),
+      border: Border.all(color: RideColors.line),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const RideLabel('SAFETY'),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: RideButton(
+                  label: _sosBusy ? 'SENDING…' : 'SOS',
+                  height: 46,
+                  busy: _sosBusy,
+                  icon: Icons.sos_rounded,
+                  onTap: _sosBusy ? null : () => _sos(ride),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: RideButton(
+                  label: 'SHARE TRIP',
+                  height: 46,
+                  filled: false,
+                  color: RideColors.sky,
+                  icon: Icons.share_location_rounded,
+                  onTap: () => _shareTrip(ride),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'SOS alerts your rider and every other partner on campus '
+            'with your live location.',
+            style: TextStyle(color: Color(0xFF7A7A7A), fontSize: 11, height: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sos(Map<String, dynamic> ride) async {
+    final ok = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            backgroundColor: const Color(0xFF121212),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            title: const Text('Send an SOS?',
+                style: TextStyle(color: Colors.white, fontSize: 16)),
+            content: const Text(
+              'Your rider and every online CUnnect partner will get your '
+              'live location right away.',
+              style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('CANCEL',
+                      style: TextStyle(color: Color(0xFF8A8A8A)))),
+              TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('SEND SOS',
+                      style: TextStyle(color: AppColors.red))),
+            ],
+          ),
+        ) ??
+        false;
+    if (!ok) return;
+    if (!mounted) return;
+    setState(() => _sosBusy = true);
+    double? lat, lng;
+    try {
+      if (await Geolocator.isLocationServiceEnabled()) {
+        final pos = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high);
+        lat = pos.latitude;
+        lng = pos.longitude;
+      }
+    } catch (_) {}
+    final err = await context.read<AppStore>().rideSos(widget.rideCode,
+        lat: lat, lng: lng);
+    if (!mounted) return;
+    setState(() => _sosBusy = false);
+    showCunnectToast(
+        context, err ?? 'SOS sent — help is on the way',
+        error: err != null);
+  }
+
+  Future<void> _shareTrip(Map<String, dynamic> ride) async {
+    final link = 'https://maps.google.com/?q=${ride['pickup_lat']},'
+        '${ride['pickup_lng']}';
+    final text = 'I am on a CUnnect ride (${widget.rideCode}) — '
+        '${ride['pickup_text']} → ${ride['drop_text']}. Live: $link';
+    await openExternalUrl(
+        'https://wa.me/?text=${Uri.encodeComponent(text)}');
+  }
+
 }

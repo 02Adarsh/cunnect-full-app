@@ -7,15 +7,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'api_client.dart';
+import 'app_portal.dart';
 import 'local_store.dart';
+import 'ride_events.dart';
+import 'ring_service.dart';
 
 /// ⭐ root navigator key
 final GlobalKey<NavigatorState> rootNavKey = GlobalKey<NavigatorState>();
 
 // ⭐ v5: the shrinker was stripping sound files from the APK (fixed via keep.xml) —
 // but the v4 channels were created on phones WITHOUT sound, hence a new id.
-const kChannelUser = 'cunnect_ping_v5';
-const kChannelVendor = 'cunnect_alert_v5';
+// ⭐ v75: Android locks a channel's sound at creation time, so switching to
+// the Universfield tone needs fresh ids (v6) again.
+const kChannelUser = 'cunnect_ping_v6';
+const kChannelVendor = 'cunnect_alert_v6';
+
+/// ⭐ v75: notification tone used by BOTH channels.
+/// Drop a file with this name in android/app/src/main/res/raw/ to change it.
+const kNotifSound = 'universfield_new_notification_066_494545';
 
 final FlutterLocalNotificationsPlugin _local =
     FlutterLocalNotificationsPlugin();
@@ -71,7 +80,10 @@ Future<void> _showLocal(Map<String, dynamic> data) async {
   rememberBroadcast(data);
   final title = '${data['title'] ?? 'CUnnect'}';
   final body = '${data['body'] ?? ''}';
-  final vendor = data['kind'] == 'vendor';
+  final portal = ('${data['portal'] ?? ''}').trim().toLowerCase();
+  final vendor = data['kind'] == 'vendor' ||
+      portal == 'vendor' ||
+      portal == 'rider';
   final details = NotificationDetails(
     android: AndroidNotificationDetails(
       vendor ? kChannelVendor : kChannelUser,
@@ -82,8 +94,7 @@ Future<void> _showLocal(Map<String, dynamic> data) async {
       priority: Priority.high,
       icon: 'cu_notif',
       playSound: true,
-      sound: RawResourceAndroidNotificationSound(
-          vendor ? 'cunnect_alert' : 'cunnect_ping'),
+      sound: const RawResourceAndroidNotificationSound(kNotifSound),
       enableVibration: true,
       enableLights: true,
       category: AndroidNotificationCategory.message,
@@ -120,8 +131,37 @@ Future<void> initFcm() async {
   // The system tray notification (background/screen-off) keeps working.
   try {
     await Firebase.initializeApp();
-    FirebaseMessaging.onMessage.listen((m) {
+    FirebaseMessaging.onMessage.listen((m) async {
       debugPrint('[FCM] foreground msg: ${m.notification?.title} ${m.data}');
+      // ⭐ v74: with the app OPEN the push used to be swallowed silently
+      // (no tray entry, no popup) — that is why ride notifications never
+      // showed up. Data-only messages still need a local heads-up, and
+      // ride events also raise their POPUP right away.
+      final data = Map<String, dynamic>.from(m.data);
+      final notif = m.notification;
+      if (notif != null) {
+        data['title'] = notif.title ?? '';
+        data['body'] = notif.body ?? '';
+      }
+      final route = '${data['route'] ?? ''}';
+      // ⭐ v74: in the FOREGROUND Android does NOT show a notification
+      // payload by itself — ride alerts would simply vanish. So they
+      // always get a local heads-up as well as their in-app popup.
+      if (notif == null || route == 'ride') {
+        await _showLocal(data);
+      }
+      // ⭐ v75: every partner portal rings non-stop for 20 seconds on new
+      // work — food order, printout job or ride request. Accept/reject
+      // stops it immediately.
+      await RingService.ringForPush(data);
+      if (route == 'ride') {
+        await RideEvents.handle(
+          data,
+          title: '${data['title'] ?? ''}',
+          body: '${data['body'] ?? ''}',
+          context: rootNavKey.currentContext,
+        );
+      }
     });
   } catch (e) {
     debugPrint('[FCM] listener registration failed: $e');
@@ -156,6 +196,7 @@ Future<void> initFcm() async {
       'cunnect_ping_v2', 'cunnect_alert_v2',
       'cunnect_ping_v3', 'cunnect_alert_v3',
       'cunnect_ping_v4', 'cunnect_alert_v4',
+      'cunnect_ping_v5', 'cunnect_alert_v5',
     ]) {
       try {
         await android?.deleteNotificationChannel(old);
@@ -167,7 +208,7 @@ Future<void> initFcm() async {
       description: 'Order & campus updates',
       importance: Importance.max,
       playSound: true,
-      sound: RawResourceAndroidNotificationSound('cunnect_ping'),
+      sound: const RawResourceAndroidNotificationSound(kNotifSound),
       enableVibration: true,
       enableLights: true,
     ));
@@ -177,7 +218,7 @@ Future<void> initFcm() async {
       description: 'New order alerts — accept/reject',
       importance: Importance.max,
       playSound: true,
-      sound: RawResourceAndroidNotificationSound('cunnect_alert'),
+      sound: const RawResourceAndroidNotificationSound(kNotifSound),
       enableVibration: true,
       enableLights: true,
     ));
@@ -187,6 +228,22 @@ Future<void> initFcm() async {
     // ⭐ v53: FCM notification tapped while the app was in the background
     FirebaseMessaging.onMessageOpenedApp.listen((m) {
       rememberBroadcast(m.data);
+      final data = Map<String, dynamic>.from(m.data);
+      if (m.notification != null) {
+        data['title'] = m.notification!.title ?? '';
+        data['body'] = m.notification!.body ?? '';
+      }
+      // ⭐ v74: ride taps also raise the matching popup once the screen
+      // is open (accept / pay / OTP / completed ...).
+      if ('${data['route'] ?? ''}' == 'ride') {
+        RideEvents.handle(
+          data,
+          title: '${data['title'] ?? ''}',
+          body: '${data['body'] ?? ''}',
+          context: rootNavKey.currentContext,
+          fromTap: true,
+        );
+      }
       dispatchNotifRoute('${m.data['route'] ?? ''}');
     });
     // ⭐ v53: FCM notification tapped while the app was fully CLOSED
@@ -194,6 +251,19 @@ Future<void> initFcm() async {
       final initial = await FirebaseMessaging.instance.getInitialMessage();
       if (initial != null) {
         rememberBroadcast(initial.data);
+        final data = Map<String, dynamic>.from(initial.data);
+        if (initial.notification != null) {
+          data['title'] = initial.notification!.title ?? '';
+          data['body'] = initial.notification!.body ?? '';
+        }
+        if ('${data['route'] ?? ''}' == 'ride') {
+          RideEvents.handle(
+            data,
+            title: '${data['title'] ?? ''}',
+            body: '${data['body'] ?? ''}',
+            fromTap: true,
+          );
+        }
         pendingNotifRoute =
             '${initial.data['route'] ?? ''}'.isEmpty
                 ? pendingNotifRoute

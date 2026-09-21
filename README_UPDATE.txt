@@ -1,3 +1,365 @@
+CUnnect v76 — UMS 1-month prediction, subject lecture planner,
+rider sees the number only after confirming, small UI fixes
+==========================================================================
+(Cumulative: includes v61-v75.)
+
+Nothing new to migrate this time (no model changes) — `python manage.py
+migrate` is still safe to run and simply reports "No migrations to
+apply".
+
+=================================================================
+1) RIDER: NUMBER ONLY AFTER HE CONFIRMS PAYMENT   (your request)
+=================================================================
+The student's phone stays hidden in the ride partner portal until the
+rider taps CONFIRM PAYMENT (paying is not enough any more).
+Until then the console shows the lock row:
+"Number appears once the payment is verified".
+
+=================================================================
+2) UMS — OVERALL PREDICTION: 1 WEEK / 1 MONTH     (your request)
+=================================================================
+The prediction sheet now has a 1 WEEK / 1 MONTH switch at the top:
+  * 1 WEEK  -> the next 7 days (unchanged)
+  * 1 MONTH -> the next 30 days, same layout: the overall ring, the
+               "+N planned" chip and every SUBJECT row with its own
+               projected % after a month of classes
+  * the day chips show the date in the monthly view ("MON 22") and
+    scroll sideways; the slider covers the whole range.
+
+=================================================================
+3) UMS — "ATTEND NEXT N" NOW FOLLOWS THE PLAN     (your request)
+=================================================================
+The headline used to look at TODAY'S percentage only, so a subject
+that was already safe after the planned lectures still showed
+"Attend the next N classes". It now follows the plan:
+  * below 75% with the plan  -> "Attend the next N classes to reach 75%."
+  * at/above 75% with it     -> "You can miss N more classes..."
+  * exactly on the safe line -> "You are on the safe line — no buffer"
+The same rule is used by the subject tiles inside the prediction
+sheet (they used to print "ATTEND NEXT N" even when the planned
+classes pushed the subject above 75%).
+
+=================================================================
+4) UMS — SUBJECT-WISE UPCOMING LECTURES           (your request)
+=================================================================
+Inside a subject's planner there is a new UPCOMING LECTURES row:
+  * every lecture of that subject for the next 7 days, with its start
+    time ("MON · 09:00"), TODAY first
+  * it scrolls SIDEWAYS
+  * tap any lecture to plan "attend up to here" — the projected %,
+    the ring and the safe/bunk line update themselves.
+
+=================================================================
+5) SMALL FIXES
+=================================================================
+  * "Food Court is currently unavailable." is now
+    "CUnnect food is currently unavailable."
+  * the Forgot password sheet now shows the same CUnnect logo the
+    rest of the app uses.
+
+STILL OPEN (from v75): your own notification tone. Copy it over
+  android/app/src/main/res/raw/universfield_new_notification_066_494545.mp3
+  assets/sounds/universfield_new_notification_066_494545.mp3
+(names must use underscores — Android rejects '-' in resource names.)
+
+=================================================================
+
+
+CUnnect v75 — RIDER CONFIRMS PAYMENT, ride QR with a locked amount,
+notifications split per portal, 20-second partner ring + new tone
+==========================================================================
+(Cumulative: includes v61-v74.)
+
+MANDATORY ON THE SERVER (two new migrations):
+  * python manage.py migrate      (ride.0008 = payment_confirmed,
+                                   food.0023 = notification.category)
+  * flutter pub get               (new package: just_audio — the ring)
+
+=================================================================
+1) PAYMENT IS NEVER AUTOMATIC ANY MORE            (your request)
+=================================================================
+NEW FLOW:
+  student books -> a rider ACCEPTS (his own Accept button, by hand)
+               -> the student pays from the QR / UPI link
+               -> the rider opens MY RIDES and taps CONFIRM PAYMENT
+               -> only then does "I'M ON LOCATION" unlock.
+
+Nothing moves by itself: the backend refuses "arrived" until the rider
+has confirmed ("Confirm the payment first"), and the ride stays on
+"Payment sent - rider confirming" for the student until he does.
+
+=================================================================
+2) RIDE QR — AMOUNT LOCKED, CANNOT BE EDITED      (your request)
+=================================================================
+  * The QR is built from the RIDER's own UPI id with the exact fare
+    baked in (upi://pay?pa=..&am=<fare>&cu=INR&tn=<ride code>) so any
+    UPI app fills the amount automatically.
+  * Below the QR: "PAY Rs.X IN A UPI APP" opens the same amount in
+    PhonePe / GPay / Paytm — again pre-filled, not editable.
+  * 50-50 works exactly the same: the first half QR and the
+    balance QR are both generated with the exact amount.
+  * Fallback: if a rider has no UPI id yet the app uses the platform
+    account (env CUNNECT_RIDE_UPI) instead of showing nothing.
+  * RIDERS: add your UPI id once in
+    Ride portal > Profile > PAYMENT UPI > SAVE UPI ID.
+    Without it the student cannot get a QR.
+  * New endpoint: GET /api/ride/upi/<code>/?amount=
+
+=================================================================
+3) NOTIFICATIONS GO TO THE RIGHT PORTAL           (your request)
+=================================================================
+Every push now carries a "portal" tag (student / rider / vendor):
+  * ride/student events  -> only in the student Ride screens
+  * ride/partner events  -> only in the Ride partner portal
+  * the OTP, SOS and trip-share never reach the rider portal
+  * food/printout orders -> only in their own vendor portals
+The tray notification still arrives for everything (that must work
+with the screen off) — only the in-app POPUP and the RING follow the
+portal you are actually looking at.
+
+SOS and "share trip" stay STUDENT-only (they were never in the rider
+portal). In the food vendor portal the student's course/branch is no
+longer printed on the order.
+
+=================================================================
+4) 20-SECOND NON-STOP RING IN EVERY PARTNER PORTAL (your request)
+=================================================================
+  * Food order, printout job or new ride request -> the portal rings
+    NON-STOP for 20 seconds (accepter/reject karte hi band).
+  * It also triggers from the poller, so it rings even if FCM is
+    delayed or blocked.
+  * Print orders now send a push as well ("New printout order").
+
+=================================================================
+5) NEW NOTIFICATION TONE
+=================================================================
+The sound you asked for ("universfield-new-notification-066-494545")
+is a paid/downloadable clip, so I bundled a placeholder with EXACTLY
+that name. To use your own file, just overwrite it (keep the name!):
+
+  assets/sounds/universfield_new_notification_066_494545.wav
+  android/app/src/main/res/raw/universfield_new_notification_066_494545.wav
+
+then run: flutter build apk --release
+(Convert your mp3 to .wav first, or rename the file to .mp3 and
+ update the two references: kNotifSound in lib/services/fcm.dart and
+ RingService.asset in lib/services/ring_service.dart.)
+
+Notes:
+  * Android locks a channel's sound at creation time, so the channels
+    moved to cunnect_ping_v6 / cunnect_alert_v6 (the old ones are
+    deleted on start). The tone plays for BOTH channels.
+  * iOS: drag the same file into Xcode > Runner to use it there too
+    (Android builds are unaffected).
+
+=================================================================
+6) ALSO IN THIS BUILD
+=================================================================
+  * Ride partner portal: "RECENT RIDES" removed from My Ride —
+    finished rides live in the History tab only.
+  * Food notification list no longer shows printout notifications.
+  * pubspec version is now 2.2.74+74 and kAppVersion = 75.
+
+=================================================================
+
+
+CUnnect v74 — RIDE: notifications & popups everywhere, history pages,
+rider payments, multi-slot unavailability, and a brand new Ride UI
+==========================================================================
+(Cumulative: includes v61-v73 — vendor self-service store, media
+banners, real-time speed, in-app password reset, iOS support, v65
+security hardening, feed links, Ride section, offline UP map, rider
+blocks and the broadcast card.)
+
+Read this first — TWO things are mandatory on the server:
+  * python manage.py migrate   (0006 = fare split, 0007 = state sync)
+  * the FCM payload now carries "event" and "ride_code"; old builds
+    simply ignore them, new builds need them for the popups.
+
+=================================================================
+1) NOTIFICATIONS + POPUPS ON EVERY RIDE EVENT   (your request)
+=================================================================
+WHY YOU SAW NOTHING: in the foreground the app swallowed pushes
+silently — no tray entry and no popup at all. That is fixed.
+
+NOW, whether the screen is ON or OFF:
+  * screen OFF / app closed  -> the system notification (unchanged),
+    and tapping it opens the right screen and then raises the POPUP
+  * app OPEN                 -> a heads-up notification AND an in-app
+    POPUP on top of whatever you are doing
+
+Every event is covered, on BOTH sides:
+  STUDENT   booked · accepted (pay now) · first-half paid · payment
+            recorded · rider arrived (with the OTP) · ride started ·
+            ride completed · balance cleared · cancelled · no rider
+  PARTNER   new request · payment received (full / first half, with
+            the amount and what is still due) · balance paid ·
+            student started sharing location · cancelled · SOS
+
+The popup matches the event: green for accepted/paid, blue with the
+OTP for "arrived", amber for "unavailable", red for SOS. A new ride
+request is the only popup that cannot be dismissed by tapping
+outside — the partner must Accept or Reject.
+
+FILES: lib/services/fcm.dart  (foreground fixed)
+       lib/services/ride_events.dart        (NEW — event bridge)
+       lib/widgets/ride_event_popup.dart    (NEW — the popups)
+       lib/services/notif_router.dart       (opens the right screen)
+       backend/.../api_app/views.py         (events on every action)
+       backend/.../api_app/tasks.py
+
+=================================================================
+2) RIDE HISTORY — SEPARATE PAGE ON BOTH SIDES   (your request)
+=================================================================
+  * Student: Ride -> the clock icon, or "Ride history" on the home
+    screen. Filter chips (All / Completed / Cancelled / No rider).
+    Tap any ride for the full receipt: route, fare, payment mode,
+    transaction id, what is still due, co-passengers and note, plus
+    BOOK THIS AGAIN.
+  * Partner: a new HISTORY tab in the ride console (and a
+    "Ride history" row under MY BUSINESS in the Profile tab), with
+    the same filters and receipts.
+  * The list is no longer capped at a handful of rides.
+
+FILES: lib/screens/ride/ride_history_screen.dart  (NEW — both pages)
+       lib/screens/ride/rider_console_screen.dart
+       backend/.../api_app/views.py  (ride/list + ride/vendor/rides
+       now return a "history" key and up to 200 rides)
+
+=================================================================
+3) PAYMENT SHOWN TO THE RIDER — HALF / FULL / BALANCE + TXN
+=================================================================
+The partner now sees exactly what the food portal shows:
+  * a FULL PAYMENT / 50-50 SPLIT badge
+  * RECEIVED  Rs X      and, when it is a split,  STILL DUE  Rs Y
+  * the transaction id (and the second one when the balance is paid)
+  * a "COLLECT Rs Y FROM THE STUDENT" button — the partner taps it
+    only after the cash is in his hand; the student is notified
+  * "Fully paid — nothing left to collect" once it is settled
+The student keeps the same payment flow as food (QR + 4 steps +
+transaction id, full or 50-50), so nothing changes for him.
+
+FILES: lib/screens/ride/rider_console_screen.dart
+       lib/services/app_store.dart
+       backend/.../api_app/views.py  (new endpoint:
+       POST /api/ride/vendor/collect-balance/<code>/)
+
+=================================================================
+4) AS MANY UNAVAILABILITY SLOTS AS YOU WANT   (your request)
+=================================================================
+Profile tab -> WHEN I AM NOT AVAILABLE is now a WEEK PLANNER:
+  * every weekday is a row; each blocked range is a chip on that day
+    (e.g. Mon: 16:00-17:00 and 18:00-19:00)
+  * every row has its own "+ slot" button, so adding 4-5 pm and
+    6-7 pm on the same day takes two taps
+  * every chip has its own delete cross
+  * one-off dates are listed separately with their own "Add a date"
+  * rides inside ANY of those windows never reach the partner, and
+    if nobody is left the student is told to book another time
+
+FILES: lib/screens/ride/rider_console_screen.dart
+       (the server always stored as many slots as you added — the
+        old screen just made it look like one)
+
+=================================================================
+5) A COMPLETELY NEW RIDE SECTION   (your request)
+=================================================================
+  * MAP FIRST: the whole screen is a live OpenStreetMap that draws
+    your route as you build it. The university is always pinned.
+  * SLIDING SHEET: pull it up like Uber — grab handle, snap points,
+    and inside it: pickup (with a CURRENT LOCATION button that takes
+    a precise GPS fix and the real address), drop, saved places,
+    then CHOOSE YOUR RIDE with a card per vehicle (icon, seats,
+    fare, colour, SELECTED badge, "currently unavailable" state).
+  * DARK PREMIUM LOOK: frosted glass cards, gradients, per-vehicle
+    accent colours, animated selection, rounded everything.
+  * EXTRAS NO OTHER CAMPUS APP HAS:
+      - SOS: alerts your rider AND every online partner with your
+        live location
+      - Share my trip: one tap sends your route to family or friends
+      - Share the OTP: copy or WhatsApp it to the rider instead of
+        reading it out
+      - Split the fare with friends: add each person and their
+        share; the app tracks who has paid
+      - Saved & recent places: one-tap Hostel / Gate / Library
+      - Your riding: total rides, kilometres and money spent
+      - Favourite routes in your statistics
+
+FILES: lib/screens/ride/ride_home_screen.dart   (rewritten)
+       lib/widgets/ride_ui.dart                 (NEW — design kit)
+       lib/screens/ride/ride_tracking_screen.dart
+       lib/services/app_store.dart
+       backend/.../api_app/views.py  (new endpoints:
+       POST /api/ride/<code>/sos/ · GET,POST /api/ride/<code>/pax/
+       POST /api/ride/<code>/pax/<id>/ · GET /api/ride/stats/)
+
+=================================================================
+6) PARTNER CONSOLE UPGRADED
+=================================================================
+  * four tabs now: Requests · My Ride · History · Profile
+  * EARNINGS on top: today, this month, all-time, plus rides, km
+    and whatever is still due to you
+  * the payment panel described in (3)
+  * the week planner described in (4)
+  * MY BUSINESS: ride history + earnings in one tap
+  * everything else from v73 stays: accept/reject popup, contact
+    revealed only after payment, map to the pickup after payment and
+    to the drop only after the OTP, rider logout
+
+=================================================================
+FILES CHANGED IN THIS ZIP
+=================================================================
+FLUTTER
+  lib/widgets/ride_ui.dart                    (NEW — design kit)
+  lib/widgets/ride_event_popup.dart           (NEW — event popups)
+  lib/services/ride_events.dart               (NEW — event bridge)
+  lib/screens/ride/ride_history_screen.dart   (NEW — both histories)
+  lib/screens/ride/ride_home_screen.dart      (rewritten UI)
+  lib/screens/ride/ride_tracking_screen.dart  (safety, split, OTP share)
+  lib/screens/ride/rider_console_screen.dart  (earnings, payments,
+                                               week planner, history)
+  lib/services/app_store.dart  (stats, pax, SOS, collect balance)
+  lib/services/fcm.dart        (foreground notifications fixed)
+  lib/services/notif_router.dart
+  lib/screens/splash_screen.dart              (version 74)
+
+BACKEND
+  backend/myproject/api_app/views.py  (every event notifies both
+    sides with event + ride_code; SOS, fare split, collect balance,
+    statistics, longer history)
+  backend/myproject/api_app/urls.py   (new endpoints)
+  backend/myproject/api_app/tasks.py  (push payload pass-through)
+  backend/myproject/ride/models.py    (RidePax)
+  backend/myproject/ride/migrations/0006_ridepax.py                (NEW)
+  backend/myproject/ride/migrations/0007_sync_riderblock_help.py   (NEW)
+
+=================================================================
+HOW TO APPLY (PowerShell)
+=================================================================
+cd C:\Users\adars\Downloads
+Expand-Archive -Path .\cunnect_v74_update.zip -DestinationPath C:\Users\adars\Downloads\cunnect_v74 -Force
+Copy-Item -Path C:\Users\adars\Downloads\cunnect_v74\* -Destination C:\Users\adars\Downloads\cunnect_food_flutter -Recurse -Force
+cd C:\Users\adars\Downloads\cunnect_food_flutter
+flutter pub get
+cd backend\myproject
+python manage.py migrate          # ← ride/0006 + ride/0007
+git add -A ; git commit -m "v74: ride notifications, history, rider payments, multi-slot, new UI" ; git push
+cd C:\Users\adars\Downloads\cunnect_food_flutter
+flutter build apk --release
+
+GitHub release tag: 74
+
+IMPORTANT
+---------
+* "python manage.py migrate" IS MANDATORY (0006 + 0007).
+* No new packages — flutter_map, geolocator, http and path_provider
+  were already in pubspec from v72/v73. "flutter pub get" is still
+  recommended after the copy.
+* Tested: 60 new backend checks (notifications on every event,
+  half/full payment maths, transaction ids, fare split, multiple
+  slots, history, statistics, SOS, no-rider handling) + the 21
+  earlier security/regression checks — 81/81 pass.
+
 CUnnect v73 — RIDE: real pickup & time slots, offline UP map, rider
 availability, broadcast card, contact privacy, rider logout
 ==========================================================================

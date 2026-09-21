@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../screens/customer/my_orders_screen.dart';
 import '../screens/ride/ride_home_screen.dart';
 import '../screens/ride/ride_tracking_screen.dart';
+import '../screens/ride/rider_console_screen.dart';
 import '../screens/customer/notifications_screen.dart';
 import '../screens/notices/notice_board_screen.dart';
 import '../screens/ums/ums_dashboard_screen.dart';
@@ -11,6 +12,7 @@ import '../screens/vendor/vendor_shell.dart';
 import 'api_client.dart';
 import 'fcm.dart';
 import 'local_store.dart';
+import 'ride_events.dart';
 
 /// ⭐ v53: GLOBAL notification deep-link router.
 ///
@@ -92,14 +94,23 @@ class NotifRouter {
         nav.popUntil((r) => r.isFirst);
         break;
       case 'ride':
+        // ⭐ v74: ride partners land in their console, students on the
+        // live ride screen for THAT ride — the code rides along with the
+        // push, so it works even with several rides in flight.
+        final ev = RideEvents.pending;
+        final code = (ev != null && ev.code.isNotEmpty)
+            ? ev.code
+            : '${LocalStore.get('active_ride_code') ?? ''}';
+        if (ApiConfig.vendorToken != null && ApiConfig.studentToken == null) {
+          nav.push(
+              MaterialPageRoute(builder: (_) => const RiderConsoleScreen()));
+          break;
+        }
         if (ApiConfig.studentToken == null) return;
-        // ⭐ v66: ride alerts (accepted / arrived / completed) open the
-        // live ride screen — the student pays or shares the OTP there.
-        final code = '${LocalStore.get('active_ride_code') ?? ''}';
         nav.push(MaterialPageRoute(
-            builder: (_) => code.isEmpty
-                ? const RideHomeScreen()
-                : RideTrackingScreen(rideCode: code)));
+            builder: (_) => code.isNotEmpty
+                ? RideTrackingScreen(rideCode: code)
+                : const RideHomeScreen()));
         break;
       case 'vendor':
         if (ApiConfig.vendorToken == null) return;

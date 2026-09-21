@@ -3043,12 +3043,19 @@ class AppStore extends ChangeNotifier {
   List<dynamic> _rideVendorPast = [];
   List<dynamic> get rideVendorPast => _rideVendorPast;
 
+  // ⭐ v74: the partner's earnings summary + the student's own stats
+  Map<String, dynamic> _rideVendorStats = {};
+  Map<String, dynamic> get rideVendorStats => _rideVendorStats;
+  Map<String, dynamic> _rideStudentStats = {};
+  Map<String, dynamic> get rideStudentStats => _rideStudentStats;
+
   /// Fare estimate for a pickup -> drop pair (distance + per-vehicle fare).
   Future<String?> rideEstimate({
     required double pickupLat,
     required double pickupLng,
     required double dropLat,
     required double dropLng,
+    String scheduledAt = '',
   }) async {
     try {
       final r = await api.post('/api/ride/estimate/',
@@ -3058,6 +3065,9 @@ class AppStore extends ChangeNotifier {
             'pickup_lng': pickupLng,
             'drop_lat': dropLat,
             'drop_lng': dropLng,
+            // ⭐ v74: availability is checked for the slot the student
+            // picked, so a blocked partner really shows as unavailable.
+            'scheduled_at': scheduledAt,
           });
       final d = api.dataOf(r);
       _rideDistanceKm = (d['distance_km'] as num?)?.toDouble() ?? 0;
@@ -3236,6 +3246,20 @@ class AppStore extends ChangeNotifier {
 
   // ---------------------- ride partner portal ----------------------
 
+  /// ⭐ v74: the student's ride statistics (rides, km, spent, favourites).
+  Future<void> loadRideStats() async {
+    if (ApiConfig.studentToken == null) return;
+    try {
+      final r = await api.get('/api/ride/stats/',
+          token: ApiConfig.studentToken);
+      final d = api.dataOf(r);
+      if (d['stats'] is Map) {
+        _rideStudentStats = Map<String, dynamic>.from(d['stats'] as Map);
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
   Future<void> loadRideVendorProfile() async {
     if (ApiConfig.vendorToken == null) return;
     try {
@@ -3292,6 +3316,9 @@ class AppStore extends ChangeNotifier {
       final d = api.dataOf(r);
       _rideVendorActive = (d['active'] as List?) ?? const [];
       _rideVendorPast = (d['past'] as List?) ?? const [];
+      if (d['stats'] is Map) {
+        _rideVendorStats = Map<String, dynamic>.from(d['stats'] as Map);
+      }
       notifyListeners();
     } catch (_) {}
   }
@@ -3427,6 +3454,119 @@ class AppStore extends ChangeNotifier {
       return error.message;
     } catch (_) {
       return 'That action did not go through. Please try again.';
+    }
+  }
+
+  // ------------------------- v74 additions -------------------------
+
+  /// The ride partner confirms he took the remaining cash.
+  Future<String?> rideCollectBalance(String code) async {
+    try {
+      await api.post('/api/ride/vendor/collect-balance/$code/',
+          token: ApiConfig.vendorToken, body: {});
+      await loadRideVendorRides();
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'Could not update the payment. Try again.';
+    }
+  }
+
+  /// ⭐ v75: the rider confirms the payment HIMSELF — nothing moves on
+  /// automatically once the student has paid.
+  Future<String?> rideVendorConfirm(String code) async {
+    return rideVendorAction('confirm', code);
+  }
+
+  /// ⭐ v75: payment QR for a ride. The amount is baked into the QR and
+  /// into the `upi://` link, so scanning fills the exact fare (the app
+  /// cannot key in a different one).
+  Future<Map<String, dynamic>?> fetchRideQr(String code, num amount) async {
+    try {
+      final r = await api.get(
+          '/api/ride/upi/$code/?amount=${amount.toStringAsFixed(2)}',
+          token: ApiConfig.studentToken);
+      final d = api.dataOf(r);
+      if (d.isEmpty) return null;
+      return d;
+    } on ApiException catch (_) {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Co-passengers on a ride (fare split between friends).
+  Future<List<Map<String, dynamic>>> ridePax(String code) async {
+    try {
+      final r = await api.get('/api/ride/$code/pax/',
+          token: ApiConfig.studentToken);
+      final d = api.dataOf(r);
+      return ((d['pax'] as List?) ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<String?> ridePaxAdd(String code,
+      {required String name, required String phone, required double amount}) async {
+    try {
+      await api.post('/api/ride/$code/pax/',
+          token: ApiConfig.studentToken,
+          body: {'name': name, 'phone': phone, 'amount': amount});
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'Could not add that person.';
+    }
+  }
+
+  Future<String?> ridePaxUpdate(String code, int paxId,
+      {bool? paid, double? amount, String? name, String? phone}) async {
+    try {
+      await api.post('/api/ride/$code/pax/$paxId/',
+          token: ApiConfig.studentToken,
+          body: {
+            if (paid != null) 'paid': paid,
+            if (amount != null) 'amount': amount,
+            if (name != null) 'name': name,
+            if (phone != null) 'phone': phone,
+          });
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'Could not update that person.';
+    }
+  }
+
+  Future<String?> ridePaxDelete(String code, int paxId) async {
+    try {
+      await api.post('/api/ride/$code/pax/$paxId/',
+          token: ApiConfig.studentToken, body: {'delete': true});
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'Could not remove that person.';
+    }
+  }
+
+  /// ⭐ SOS — alerts this ride's partner and every other online partner.
+  Future<String?> rideSos(String code, {double? lat, double? lng}) async {
+    try {
+      await api.post('/api/ride/$code/sos/',
+          token: ApiConfig.studentToken,
+          body: {'lat': lat, 'lng': lng});
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'Could not send the SOS. Call your rider directly.';
     }
   }
 }

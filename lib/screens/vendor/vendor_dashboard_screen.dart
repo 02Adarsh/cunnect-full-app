@@ -6,7 +6,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/models.dart';
+import '../../services/app_portal.dart';
 import '../../services/app_store.dart';
+import '../../services/ring_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
 import '../customer/notifications_screen.dart';
@@ -28,9 +30,17 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
   final _ordersKey = GlobalKey();
   Timer? _pollTimer;
 
+  // ⭐ v75: non-stop ring for every brand-new order (20 seconds, stops the
+  // moment the vendor accepts or rejects).
+  final Set<String> _seenOrders = {};
+  bool _ordersLoadedOnce = false;
+
   @override
   void initState() {
     super.initState();
+    // ⭐ v75: this is the VENDOR portal — rider / student pushes must not
+    // raise their popups or their ring in here.
+    ActivePortal.set(AppPortal.vendor);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final store = context.read<AppStore>();
       store.refreshVendorDashboard();
@@ -62,11 +72,26 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
   }
 
 
+  /// ⭐ v75: ring for 20 seconds when a brand-new order shows up.
+  void _ringOnNewOrders(AppStore store) {
+    final ids = store.vendorIncomingOrders.map((o) => '${o.id}').toSet();
+    if (!_ordersLoadedOnce) {
+      _seenOrders.addAll(ids);
+      _ordersLoadedOnce = true;
+      return;
+    }
+    final fresh = ids.difference(_seenOrders);
+    if (fresh.isEmpty) return;
+    _seenOrders.addAll(fresh);
+    RingService.ring(key: fresh.first);
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final incoming = store.vendorIncomingOrders;
     final active = store.vendorActiveOrders;
+    _ringOnNewOrders(store);
     final unread = store.unreadCountFor(AppStore.vendorUserId);
 
     final body = ListView(
@@ -328,7 +353,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
           '📞 visible after accept',
         if (o.customerHostel.isNotEmpty)
           '${o.customerHostel}${o.customerRoom.isNotEmpty ? ' · Rm ${o.customerRoom}' : ''}',
-        if (o.customerBranch.isNotEmpty) o.customerBranch,
+        // ⭐ v75: removed — the student's course/branch is not needed here
         if (o.customerUpi.isNotEmpty) 'UPI: ${o.customerUpi}',
         if (o.txnId.isNotEmpty)
           'Txn ID: ${o.txnId}'
@@ -428,11 +453,19 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
                               Column(
                                 children: [
                                   _orderButton('Accept', AppColors.red, Colors.white,
-                                      () => store.vendorUpdateOrderStatus(order.id, 'accept')),
+                                      () {
+                                    RingService.stop();
+                                    store.vendorUpdateOrderStatus(
+                                        order.id, 'accept');
+                                  }),
                                   const SizedBox(height: 6),
                                   _orderButton('Reject', Colors.transparent,
                                       const Color(0xFFBBBBBB),
-                                      () => store.vendorUpdateOrderStatus(order.id, 'reject'),
+                                      () {
+                                    RingService.stop();
+                                    store.vendorUpdateOrderStatus(
+                                        order.id, 'reject');
+                                  },
                                       borderColor: const Color(0xFF444444)),
 
                                 ],

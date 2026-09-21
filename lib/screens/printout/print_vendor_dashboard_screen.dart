@@ -6,8 +6,10 @@ import 'package:provider/provider.dart';
 
 import '../../models/models.dart';
 import '../../services/api_client.dart';
+import '../../services/app_portal.dart';
 import '../../services/app_store.dart';
 import '../../services/open_url.dart';
+import '../../services/ring_service.dart';
 import '../pdf_viewer_screen.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
@@ -30,15 +32,39 @@ class _PrintVendorDashboardScreenState
   Timer? _pollTimer;
   int _tab = 0; // 0 = Orders, 1 = Earnings, 2 = Settings, 3 = Profile
 
+  // ⭐ v75: ring for 20 seconds on a brand-new print job
+  final Set<String> _seenOrders = {};
+  bool _ordersLoadedOnce = false;
+
   @override
   void initState() {
     super.initState();
+    // ⭐ v75: vendor portal — only vendor pushes belong here
+    ActivePortal.set(AppPortal.vendor);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppStore>().loadPrintVendorDashboard();
     });
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (mounted) context.read<AppStore>().loadPrintVendorDashboard();
     });
+  }
+
+  /// ⭐ v75: non-stop ring the moment a new printout job lands.
+  void _ringOnNewOrders() {
+    final store = context.read<AppStore>();
+    final ids = store.printVendorOrders
+        .where((o) => o.status == PrintOrderStatus.pending)
+        .map((o) => '${o.id}')
+        .toSet();
+    if (!_ordersLoadedOnce) {
+      _seenOrders.addAll(ids);
+      _ordersLoadedOnce = true;
+      return;
+    }
+    final fresh = ids.difference(_seenOrders);
+    if (fresh.isEmpty) return;
+    _seenOrders.addAll(fresh);
+    RingService.ring(key: fresh.first);
   }
 
   @override
@@ -51,6 +77,7 @@ class _PrintVendorDashboardScreenState
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final orders = store.printVendorOrders;
+    _ringOnNewOrders();
     final pending =
         orders.where((o) => o.status == PrintOrderStatus.pending).length;
     final active = orders
@@ -514,8 +541,10 @@ class _OrderCard extends StatelessWidget {
                   child: SizedBox(
                     height: 38,
                     child: ElevatedButton(
-                      onPressed: () =>
-                          store.updatePrintOrderStatus(order.id, action),
+                      onPressed: () {
+                        RingService.stop();
+                        store.updatePrintOrderStatus(order.id, action);
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: action == 'reject'
                             ? const Color(0xFF2A1214)

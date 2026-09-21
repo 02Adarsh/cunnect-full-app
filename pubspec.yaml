@@ -1,7 +1,8 @@
 name: cunnect_food
 description: "CUnnect Food - Flutter port of the Django food ordering app (Customer, Vendor & Delivery panels)."
 publish_to: 'none'
-version: 1.0.0+1
+# ⭐ v75: keep this in step with kAppVersion (lib/screens/splash_screen.dart)
+version: 2.2.76+76
 
 environment:
   sdk: ^3.5.0
@@ -20,6 +21,8 @@ dependencies:
   firebase_core: ^3.6.0
   firebase_messaging: ^15.1.6
   flutter_local_notifications: ^17.2.4
+  # ⭐ v75: non-stop 20-second ring for every vendor portal
+  just_audio: ^0.10.4
   url_launcher: ^6.2.5
   pdfx: ^2.6.0
   # ⭐ v66: CUnnect Ride — OpenStreetMap picker (no Google API key,
@@ -43,6 +46,9 @@ flutter:
     - assets/food_images/
     - assets/hero_slides/
     - assets/banners/
+    # ⭐ v75: notification / vendor ring tone. Replace the file (keep the
+    # SAME name) with your own sound to change it, then rebuild.
+    - assets/sounds/
 
   fonts:
     - family: Poppins

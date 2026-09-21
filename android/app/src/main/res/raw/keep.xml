@@ -3,4 +3,4 @@
      unused and stripping them from the APK — that is why the notification
      sound was silent. This keep rule always keeps them in the APK. -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@raw/cunnect_ping,@raw/cunnect_alert,@drawable/cu_notif" />
+    tools:keep="@raw/cunnect_ping,@raw/cunnect_alert,@raw/universfield_new_notification_066_494545,@drawable/cu_notif" />
