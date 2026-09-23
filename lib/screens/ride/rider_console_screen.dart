@@ -52,9 +52,6 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
   final _vehicleNo = TextEditingController();
   final _vehicleModel = TextEditingController();
   bool _online = false;
-  // ⭐ v79: "I drive an auto" — auto partners receive the one-tap calls
-  // from the student Ride screen (no fare, no payment, no OTP).
-  bool _isAuto = false;
   final Map<String, TextEditingController> _base = {};
   final Map<String, TextEditingController> _perKm = {};
   final Map<String, bool> _active = {};
@@ -121,7 +118,6 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       _vehicleNo.text = '${p['vehicle_number'] ?? ''}';
       _vehicleModel.text = '${p['vehicle_model'] ?? ''}';
       _online = p['is_online'] == true;
-      _isAuto = p['is_auto'] == true;
     }
     for (final v in store.rideVehicles) {
       final m = Map<String, dynamic>.from(v as Map);
@@ -520,7 +516,6 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
           vehicleNumber: _vehicleNo.text,
           vehicleModel: _vehicleModel.text,
           isOnline: _online,
-          isAuto: _isAuto,
           rates: rates,
         );
     if (!mounted) return;
@@ -2189,17 +2184,15 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        // ⭐ v79: auto partners are alerted by the AUTO button on the
-        // student Ride screen — they are not part of the car bookings.
+        // ⭐ v81: auto driving is a SEPARATE account now. The car
+        // console is for cars only — an auto partner logs in with his own
+        // AUTO account and gets the AUTO portal.
         Container(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           decoration: BoxDecoration(
             color: const Color(0xFF111111),
             borderRadius: BorderRadius.circular(15),
-            border: Border.all(
-                color: _isAuto
-                    ? AppColors.red.withOpacity(.5)
-                    : const Color(0xFF262626)),
+            border: Border.all(color: const Color(0xFF262626)),
           ),
           child: Row(
             children: [
@@ -2210,11 +2203,9 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                 decoration: BoxDecoration(
                   color: AppColors.red.withOpacity(.12),
                   borderRadius: BorderRadius.circular(11),
-                  border: Border.all(
-                      color: AppColors.red.withOpacity(
-                          _isAuto ? .45 : .18)),
+                  border: Border.all(color: AppColors.red.withOpacity(.18)),
                 ),
-                child: const Text('🚺',
+                child: const Text('🛺',
                     style: TextStyle(fontSize: 19)),
               ),
               const SizedBox(width: 12),
@@ -2222,26 +2213,22 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('I drive an auto',
+                    Text('Drive an auto instead?',
                         style: TextStyle(
                             color: Colors.white,
                             fontSize: 13.5,
                             fontWeight: FontWeight.w700)),
                     SizedBox(height: 2),
                     Text(
-                        'ON — students can call you to the main gate with '
-                        'one tap. No fare, no payment, no OTP.',
+                        'Auto partners have their own CUnnect account and '
+                        'their own AUTO portal. Ask the admin to create one '
+                        'for this number.',
                         style: TextStyle(
                             color: Color(0xFF9E9E9E),
                             fontSize: 11,
                             height: 1.45)),
                   ],
                 ),
-              ),
-              Switch(
-                value: _isAuto,
-                activeColor: AppColors.red,
-                onChanged: (v) => setState(() => _isAuto = v),
               ),
             ],
           ),

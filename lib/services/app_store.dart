@@ -3503,6 +3503,153 @@ class AppStore extends ChangeNotifier {
   /// ⭐ v79: ONE TAP on the AUTO button -> every auto partner on campus
   /// is alerted at the same moment. No booking, no fare, no payment —
   /// the pickup is always the campus main gate.
+  /// \u2b50 v81: the AUTO portal — what is waiting for this partner.
+  Future<void> loadAutoIncoming() async {
+    if (ApiConfig.vendorToken == null) return;
+    try {
+      final r = await api.get('/api/ride/auto/incoming/',
+          token: ApiConfig.vendorToken);
+      final d = api.dataOf(r);
+      _autoOnline = (d['auto_online'] ?? true) == true;
+      _isAutoPartner = (d['is_auto'] ?? false) == true;
+      _autoCalls = [
+        for (final c in (d['calls'] as List? ?? [])) Map<String, dynamic>.from(c)
+      ];
+      _autoRecent = [
+        for (final c in (d['recent'] as List? ?? [])) Map<String, dynamic>.from(c)
+      ];
+      _autoAcceptedToday = (d['accepted_today'] as num?)?.toInt() ?? 0;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  List<Map<String, dynamic>> _autoCalls = [];
+  List<Map<String, dynamic>> _autoRecent = [];
+  bool _autoOnline = true;
+  bool _isAutoPartner = false;
+  int _autoAcceptedToday = 0;
+
+  List<Map<String, dynamic>> get autoCalls => _autoCalls;
+  List<Map<String, dynamic>> get autoRecent => _autoRecent;
+  bool get autoOnline => _autoOnline;
+  bool get isAutoPartner => _isAutoPartner;
+  int get autoAcceptedToday => _autoAcceptedToday;
+
+  /// \u2b50 v81: accept or decline an AUTO call.
+  Future<Map<String, dynamic>> respondAutoCall(
+      int callId, bool accept) async {
+    try {
+      final r = await api.post('/api/ride/auto/respond/',
+          token: ApiConfig.vendorToken,
+          body: {'call_id': callId, 'action': accept ? 'accept' : 'decline'});
+      final d = api.dataOf(r);
+      await loadAutoIncoming();
+      return {'ok': true, 'call': d['call'] ?? {}};
+    } on ApiException catch (error) {
+      return {'ok': false, 'error': error.message};
+    } catch (_) {
+      return {'ok': false, 'error': 'Could not answer that call. Try again.'};
+    }
+  }
+
+  /// \u2b50 v81: the AUTO portal duty switch.
+  Future<bool> setAutoOnline(bool value) async {
+    _autoOnline = value;
+    notifyListeners();
+    try {
+      await api.post('/api/ride/auto/status/',
+          token: ApiConfig.vendorToken, body: {'auto_online': value});
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> loadAutoHistory() async {
+    if (ApiConfig.vendorToken == null) return;
+    try {
+      final r = await api.get('/api/ride/auto/history/',
+          token: ApiConfig.vendorToken);
+      final d = api.dataOf(r);
+      _autoHistory = [
+        for (final c in (d['calls'] as List? ?? [])) Map<String, dynamic>.from(c)
+      ];
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  List<Map<String, dynamic>> _autoHistory = [];
+  List<Map<String, dynamic>> get autoHistory => _autoHistory;
+
+  // ---------------- admin: the AUTO portal from the panel ----------------
+
+  Future<void> loadAdminAutoPartners() async {
+    try {
+      final r = await api.get('/api/admin/auto-partners/',
+          token: ApiConfig.adminToken);
+      final d = api.dataOf(r);
+      _adminAutoPartners = [
+        for (final p in (d['partners'] as List? ?? []))
+          Map<String, dynamic>.from(p)
+      ];
+      _adminOtherPartners = [
+        for (final p in (d['others'] as List? ?? []))
+          Map<String, dynamic>.from(p)
+      ];
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  List<Map<String, dynamic>> _adminAutoPartners = [];
+  List<Map<String, dynamic>> _adminOtherPartners = [];
+  List<Map<String, dynamic>> get adminAutoPartners => _adminAutoPartners;
+  List<Map<String, dynamic>> get adminOtherPartners => _adminOtherPartners;
+
+  Future<bool> adminSetAutoPartner(
+      int vendorId, bool isAuto, bool autoOnline) async {
+    try {
+      await api.post('/api/admin/auto-partners/$vendorId/',
+          token: ApiConfig.adminToken,
+          body: {'is_auto': isAuto, 'auto_online': autoOnline});
+      await loadAdminAutoPartners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// \u2b50 v81: the admin creates a whole AUTO account from the panel.
+  Future<bool> adminCreateAutoPartner(
+      String name, String phone, String password) async {
+    try {
+      await api.post('/api/admin/auto-partners/add/',
+          token: ApiConfig.adminToken,
+          body: {
+            'business_name': name,
+            'phone': phone,
+            'password': password
+          });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> loadAdminAutoCalls() async {
+    try {
+      final r = await api.get('/api/admin/auto-calls/',
+          token: ApiConfig.adminToken);
+      final d = api.dataOf(r);
+      _adminAutoCalls = [
+        for (final c in (d['calls'] as List? ?? [])) Map<String, dynamic>.from(c)
+      ];
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  List<Map<String, dynamic>> _adminAutoCalls = [];
+  List<Map<String, dynamic>> get adminAutoCalls => _adminAutoCalls;
+
   Future<Map<String, dynamic>> rideAutoCall() async {
     try {
       final r = await api.post('/api/ride/auto/call/',

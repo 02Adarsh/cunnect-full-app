@@ -1,5 +1,79 @@
-CUnnect v80 — OTP verification in every store section
+CUnnect v81 — a separate AUTO portal
 ==========================================================================
+(Cumulative: includes v61-v80.)
+
+ONE NEW MIGRATION THIS TIME (must run it once):
+  python manage.py migrate      (ride.0012 = AutoCall table + auto_online)
+
+=================================================================
+1) AUTO IS ITS OWN PORTAL NOW                           (your request)
+=================================================================
+An auto partner is no longer a car partner with a switch. AUTO is a
+separate ACCOUNT TYPE with its own portal:
+
+  * The admin creates it: Admin panel > AUTO > "CREATE AUTO ACCOUNT"
+    (name, phone, password) — or turns an existing ride partner into
+    one with MAKE AUTO.
+  * He logs in with that phone/password and lands straight in the AUTO
+    portal. He never sees car bookings, fares, ride OTPs or the garage.
+  * A car partner logs in and gets the car console exactly as before.
+    The two never mix.
+
+WHAT THE AUTO PORTAL DOES
+  * A student taps AUTO on the Ride screen -> EVERY auto partner who is
+    on duty rings at the same moment (20 seconds, non-stop).
+  * One card: "A student needs an auto at the campus main gate" with
+    ACCEPT and DECLINE. That is all — no fare, no payment, no OTP, no
+    ride record, and nothing about the student is ever shown.
+  * ON DUTY / OFF DUTY switch at the top. Off duty = no calls.
+  * RECENT list: accepted / declined / missed, with "N accepted today".
+
+=================================================================
+2) THE CAR PORTAL ONLY RINGS FOR CARS
+=================================================================
+Auto calls carry portal=auto, so the car console never rings for one and
+the AUTO portal never rings for a booking. The old "I drive an auto"
+switch inside the car console is gone — it is replaced by a line telling
+the driver to ask for an AUTO account.
+
+=================================================================
+3) THE ADMIN PANEL CAN REACH IT
+=================================================================
+Admin panel > AUTO (new last tab):
+  * every auto partner with his phone, vehicle and duty switch
+  * how many calls he took and how many he accepted
+  * create a new AUTO account in one screen
+  * MAKE AUTO on any ride partner (and remove him again)
+  * the AUTO CALL LOG — who called, who answered, what happened
+
+=================================================================
+4) ALSO IN THIS BUILD (v80b, backend only)
+=================================================================
+Print order files are now served directly by the backend instead of
+redirecting to Cloudinary (that redirect is why PDFs would not open).
+Add ?debug=1 to the file URL to see which storage attempt failed.
+
+=================================================================
+
+CUnnect v80 — OTP verification in every store section
++ v80b: print order files now download properly
+==========================================================================
+(Cumulative: includes v61-v79.)
+
+ONE NEW MIGRATION THIS TIME (must run it once):
+  python manage.py migrate      (myapp.0035 = print + hostel OTP columns)
+
+v80b HOTFIX (backend only — no APK rebuild needed):
+  * The print partner's "File" button was handing the app a REDIRECT to a
+    Cloudinary signed URL. The redirect dropped the auth header and free
+    plan raw delivery answered 401/404, so the PDF never opened — in the
+    app or in a browser.
+  * The endpoint now fetches the file server-side (Admin API lookup ->
+    signed download -> plain delivery URL) and returns a plain 200 with
+    the bytes, inline, with the right content type.
+  * Diagnostics: add ?debug=1 to the file URL and it returns JSON telling
+    you exactly which storage attempt failed and why.
+
 (Cumulative: includes v61-v79.)
 
 ONE NEW MIGRATION THIS TIME (must run it once):

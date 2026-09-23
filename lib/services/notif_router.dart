@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../screens/customer/my_orders_screen.dart';
 import '../screens/ride/ride_home_screen.dart';
 import '../screens/ride/ride_tracking_screen.dart';
+import '../screens/ride/auto_console_screen.dart';
 import '../screens/ride/rider_console_screen.dart';
 import '../screens/customer/notifications_screen.dart';
 import '../screens/notices/notice_board_screen.dart';
@@ -102,8 +103,13 @@ class NotifRouter {
             ? ev.code
             : '${LocalStore.get('active_ride_code') ?? ''}';
         if (ApiConfig.vendorToken != null && ApiConfig.studentToken == null) {
-          nav.push(
-              MaterialPageRoute(builder: (_) => const RiderConsoleScreen()));
+          // ⭐ v81: an AUTO account lands in the AUTO portal, a car
+          // partner in the ride console.
+          final vtype = LocalStore.get('vendor_type') ?? '';
+          nav.push(MaterialPageRoute(
+              builder: (_) => vtype == 'auto'
+                  ? const AutoConsoleScreen()
+                  : const RiderConsoleScreen()));
           break;
         }
         if (ApiConfig.studentToken == null) return;

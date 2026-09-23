@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../services/app_store.dart';
 
+import '../ride/auto_console_screen.dart';
 import '../../theme/app_colors.dart';
 import '../printout/print_vendor_dashboard_screen.dart';
 import 'hostel_products_screen.dart';
@@ -86,6 +87,11 @@ class _VendorShellState extends State<VendorShell> {
     // settings) — the food nav tabs are not relevant for them.
     if (context.watch<AppStore>().vendor.vendorType == 'printout') {
       return const PrintVendorDashboardScreen();
+    }
+    // ⭐ v81: AUTO partners are their own account type — they get the
+    // AUTO portal and never see car bookings, fares or ride OTPs.
+    if (context.watch<AppStore>().vendor.vendorType == 'auto') {
+      return const AutoConsoleScreen();
     }
     // ⭐ v66: ride partners get their own console (requests, OTP,
     // pricing) — the food/orders tabs make no sense for a driver.

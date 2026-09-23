@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../screens/ride/ride_home_screen.dart';
+import '../screens/ride/auto_console_screen.dart';
 import '../screens/ride/ride_tracking_screen.dart';
 import '../screens/ride/rider_console_screen.dart';
 import '../services/app_store.dart';
@@ -440,10 +441,14 @@ class RideEventPopup extends StatelessWidget {
         return;
       default:
         nav.pop();
+        // \u2b50 v81: an AUTO call belongs to the AUTO portal — a car
+        // console must never open for it.
         nav.push(MaterialPageRoute(
-            builder: (_) => riderSide
-                ? const RiderConsoleScreen()
-                : RideTrackingScreen(rideCode: code)));
+            builder: (_) => event == 'auto_call'
+                ? const AutoConsoleScreen()
+                : riderSide
+                    ? const RiderConsoleScreen()
+                    : RideTrackingScreen(rideCode: code)));
     }
   }
 }

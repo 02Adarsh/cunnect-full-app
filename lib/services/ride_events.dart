@@ -65,7 +65,12 @@ class RideEvent {
     String s(String k) => '${d[k] ?? ''}';
     final kind = s('event');
     final portalRaw = s('portal').toLowerCase();
-    final portal = portalRaw == 'rider' ? 'rider' : 'student';
+    // ⭐ v81: 'auto' is the AUTO partner's own portal.
+    final portal = portalRaw == 'auto'
+        ? 'auto'
+        : portalRaw == 'rider'
+            ? 'rider'
+            : 'student';
     double? lat;
     double? lng;
     if (s('lat').isNotEmpty) lat = double.tryParse(s('lat'));
@@ -81,7 +86,10 @@ class RideEvent {
       txn: s('txn'),
       lat: lat,
       lng: lng,
-      riderSide: riderSide || _riderOnly.contains(kind) || portal == 'rider',
+      riderSide: riderSide ||
+          _riderOnly.contains(kind) ||
+          portal == 'rider' ||
+          portal == 'auto',
       portal: portal,
     );
   }
@@ -151,7 +159,13 @@ class RideEvents {
     // [stream], so letting it through used to paint the partner's
     // confirm-payment popup and the student's OTP on the wrong side.
     _last = ev;
-    if (!ActivePortal.accepts(ev.riderSide ? 'rider' : 'student')) return;
+    // ⭐ v81: an auto push is only offered inside the AUTO portal.
+    final gate = ev.portal == 'auto'
+        ? 'auto'
+        : ev.riderSide
+            ? 'rider'
+            : 'student';
+    if (!ActivePortal.accepts(gate)) return;
     if (!_bus.isClosed) _bus.add(ev);
     if (fromTap) {
       _pending = ev; // the ride screen will show it once it is open
@@ -183,8 +197,8 @@ class RideEvents {
 
   /// ⭐ v77: true when this event belongs to the portal on screen.
   /// Screens call this before showing anything from the stream.
-  static bool belongsHere(RideEvent ev) =>
-      ActivePortal.accepts(ev.riderSide ? 'rider' : 'student');
+  static bool belongsHere(RideEvent ev) => ActivePortal.accepts(
+      ev.portal == 'auto' ? 'auto' : ev.riderSide ? 'rider' : 'student');
 
   /// ⭐ v78: money confirmations must never BLOCK the student's ride
   /// screen. They already arrive as a tray notification, so in-app they
