@@ -1151,6 +1151,213 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     if (mounted) setState(() {});
   }
 
+  // ------------------------------------------------------------------
+  // AUTO helpers — everything the AUTO manager sheet above draws with.
+  // ------------------------------------------------------------------
+
+  /// '23/9 · 18:42' from the server's ISO stamp (empty when unusable).
+  String _autoTime(String iso) {
+    final d = DateTime.tryParse(iso);
+    if (d == null) return '';
+    final t = d.toLocal();
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
+    return '${t.day}/${t.month} · $h:$m';
+  }
+
+  Widget _autoField(TextEditingController c, String label,
+      {TextInputType? keyboard, bool obscure = false}) {
+    return TextField(
+      controller: c,
+      keyboardType: keyboard,
+      obscureText: obscure,
+      style: const TextStyle(color: Colors.white, fontSize: 13),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: AppColors.muted, fontSize: 12),
+        filled: true,
+        fillColor: const Color(0xFF0F0F0F),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(11),
+            borderSide: const BorderSide(color: Color(0xFF2C2C2C))),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(11),
+            borderSide: const BorderSide(color: Color(0xFFFFABB2))),
+      ),
+    );
+  }
+
+  /// One AUTO partner: his name, his tally and his ON / OFF DUTY switch.
+  Widget _autoPartnerCard(Map<String, dynamic> p) {
+    final vid = (p['vendor_id'] as num?)?.toInt() ?? 0;
+    final on = (p['auto_online'] ?? false) == true;
+    final name = (p['name'] ?? 'AUTO partner').toString();
+    final phone = (p['phone'] ?? '').toString();
+    final calls = (p['total_calls'] ?? 0).toString();
+    final accepted = (p['accepted'] ?? 0).toString();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.fromLTRB(11, 9, 4, 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F0F0F),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF262626)),
+      ),
+      child: Row(children: [
+        Container(
+          width: 32,
+          height: 32,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+              color: const Color(0x26F10B1D),
+              borderRadius: BorderRadius.circular(10)),
+          child: const Text('\U0001f6fa', style: TextStyle(fontSize: 15)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    style: const TextStyle(
+                        fontSize: 12.5, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(
+                    phone.isEmpty
+                        ? '$accepted accepted of $calls'
+                        : '$phone · $accepted accepted of $calls',
+                    style: const TextStyle(
+                        color: AppColors.muted, fontSize: 10.5)),
+              ]),
+        ),
+        Switch(
+          value: on,
+          activeColor: const Color(0xFFF10B1D),
+          onChanged: (v) async {
+            final ok = await _store.adminSetAutoPartner(vid, true, v);
+            _toast(ok ? null : 'Could not change his duty state.',
+                v ? 'He is ON DUTY.' : 'He is OFF DUTY.');
+          },
+        ),
+      ]),
+    );
+  }
+
+  /// A ride partner who is not an AUTO partner yet — one tap converts him.
+  Widget _autoOtherRow(Map<String, dynamic> o) {
+    final vid = (o['vendor_id'] as num?)?.toInt() ?? 0;
+    final name = (o['name'] ?? 'Ride partner').toString();
+    final plate = (o['vehicle_number'] ?? '').toString();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(11, 8, 4, 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F0F0F),
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: const Color(0xFF232323)),
+      ),
+      child: Row(children: [
+        Expanded(
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    style: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w600)),
+                if (plate.isNotEmpty)
+                  Text(plate,
+                      style: const TextStyle(
+                          color: AppColors.muted, fontSize: 10.5)),
+              ]),
+        ),
+        TextButton(
+          onPressed: () async {
+            final ok = await _store.adminSetAutoPartner(vid, true, true);
+            _toast(ok ? null : 'Could not make him an AUTO partner.',
+                'He is an AUTO partner now — ON DUTY.');
+          },
+          child: const Text('MAKE AUTO',
+              style: TextStyle(
+                  color: Color(0xFFFFABB2),
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800)),
+        ),
+      ]),
+    );
+  }
+
+  /// One line of the AUTO call log — who called, who answered, when.
+  Widget _autoCallRow(Map<String, dynamic> c) {
+    final st = (c['status'] ?? 'pending').toString();
+    final Color tint = st == 'accepted'
+        ? const Color(0xFFFFABB2)
+        : (st == 'pending' ? const Color(0xFFF10B1D) : const Color(0xFF6A6A6A));
+    final who = (c['student_name'] ?? 'A student').toString();
+    final rider = (c['rider_name'] ?? '').toString();
+    final when = _autoTime((c['created_at_iso'] ?? '').toString());
+    return Container(
+      margin: const EdgeInsets.only(bottom: 7),
+      padding: const EdgeInsets.fromLTRB(10, 9, 12, 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F0F0F),
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: const Color(0xFF232323)),
+      ),
+      child: Row(children: [
+        Container(
+            width: 5,
+            height: 26,
+            decoration: BoxDecoration(
+                color: tint, borderRadius: BorderRadius.circular(3))),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                    rider.isEmpty
+                        ? '$who — no one answered'
+                        : '$who → $rider',
+                    style: const TextStyle(
+                        fontSize: 11.5, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(
+                    when.isEmpty
+                        ? st.toUpperCase()
+                        : '${st.toUpperCase()} · $when',
+                    style: TextStyle(
+                        color: tint,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800)),
+              ]),
+        ),
+      ]),
+    );
+  }
+
+  Future<void> _addAutoPartner() async {
+    final name = _autoName.text.trim();
+    final phone = _autoPhone.text.trim();
+    final pass = _autoPass.text;
+    if (name.isEmpty || phone.isEmpty || pass.isEmpty) {
+      _toast('Name, phone and password are required.', '');
+      return;
+    }
+    final saved = await _store.adminCreateAutoPartner(name, phone, pass);
+    if (!saved) {
+      _toast('Could not create that account — is that phone already used?', '');
+      return;
+    }
+    _autoName.clear();
+    _autoPhone.clear();
+    _autoPass.clear();
+    await _store.loadAdminAutoPartners();
+    await _store.loadAdminAutoCalls();
+    _toast(null, '$name can log in now and gets the AUTO portal.');
+  }
+
   Widget _vendorsPage() {
     if (_vendors.isEmpty) {
       return ListView(

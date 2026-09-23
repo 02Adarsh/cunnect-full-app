@@ -3,6 +3,8 @@ CUnnect v82 — the AUTO portal
 (Cumulative: includes v61-v81.)
 
 v82 is the same code as v81 with the app version bumped to 82.
+(The AUTO manager sheet on the Vendors page got its helper widgets
+re-added — the first v82 upload would not compile without them.)
 Everything below shipped in v81 — one migration to run.
 
 
