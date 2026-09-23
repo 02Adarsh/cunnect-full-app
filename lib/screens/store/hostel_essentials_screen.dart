@@ -44,7 +44,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
 
   Timer? _qrDebounce;
   double _qrAmount = -1;
-  /// \u2b50 v80: keeps "MY ORDERS" live so the delivery OTP shows up as soon
+  /// ⭐ v80: keeps "MY ORDERS" live so the delivery OTP shows up as soon
   /// as the hostel vendor accepts.
   Timer? _ordersTimer;
 
@@ -238,9 +238,11 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
         _error = '${res['error']}';
       } else {
         _placed = (res['order'] as Map?)?.cast<String, dynamic>();
-        await store.loadMyHostelOrders();
       }
     });
+    // v80: pull the fresh order (and its OTP) into MY ORDERS right away —
+    // the await lives out here because setState is not async.
+    if (res['error'] == null) await store.loadMyHostelOrders();
   }
 
   // ---------------- UI ----------------
@@ -620,7 +622,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                                   fontWeight: FontWeight.w800)),
                     ),
                   ),
-                  // \u2b50 v80: MY ORDERS — the OTP shown here is the code the
+                  // ⭐ v80: MY ORDERS — the OTP shown here is the code the
                   // vendor has to type in before the order can be delivered.
                   const SizedBox(height: 22),
                   _sectionTitle('MY ORDERS'),
@@ -645,12 +647,15 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
     );
   }
 
-  /// \u2b50 v80: one past order — status, the item list and (while it is on
+  /// ⭐ v80: one past order — status, the item list and (while it is on
   /// its way) the delivery OTP the student has to show at the door.
   Widget _myOrderCard(Map<String, dynamic> o) {
     final status = '${o['status'] ?? ''}';
     final otp = '${o['delivery_otp'] ?? ''}';
     final verified = (o['otp_verified'] ?? false) == true;
+    final orderId = o['id'];
+    final created =
+        ('${o['created_at'] ?? ''}').replaceFirst('T', ' ').trim();
     final items = [
       for (final raw in (o['items'] as List? ?? []))
         (raw as Map).cast<String, dynamic>()
@@ -683,9 +688,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
           Row(children: [
             Expanded(
               child: Text(
-                  'Order #${o['id']} · '
-                  '${'${o['created_at'] ?? ''}'.toString().replaceFirst('T', ' ')}'
-                      .trim(),
+                  'Order #$orderId · $created',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -711,14 +714,14 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
               Padding(
                 padding: const EdgeInsets.only(top: 3),
                 child: Text(
-                    '${it['qty'] ?? 1} \u00d7 ${it['name'] ?? 'Item'}',
+                    '${it['qty'] ?? 1} × ${it['name'] ?? 'Item'}',
                     style: const TextStyle(
                         color: AppColors.muted, fontSize: 11)),
               ),
           ],
           const SizedBox(height: 8),
           Row(children: [
-            Text('\u20b9${((o['total'] ?? 0) as num).round()}',
+            Text('₹${((o['total'] ?? 0) as num).round()}',
                 style: const TextStyle(
                     fontSize: 14, fontWeight: FontWeight.w800)),
             const Spacer(),
