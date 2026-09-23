@@ -89,8 +89,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     (Icons.receipt_long_rounded, 'Orders'),
     (Icons.school_rounded, 'Students'),
     (Icons.tune_rounded, 'Control'),
-    // ⭐ v81: the AUTO portal, reachable straight from the panel.
-    (Icons.local_taxi_rounded, 'Auto'),
   ];
 
   /// ⭐ v62: paint every page from the LAST session's cache before any
@@ -233,11 +231,20 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             _vendors = (r[1]['vendors'] as List?) ?? [];
           });
         }
+        // ⭐ v81: AUTO partners live in the Vendors page now
+        _store.loadAdminAutoPartners();
+        _store.loadAdminAutoCalls();
         _prewarmVendorPortals();
         break;
       case 2:
         final d = await _store.adminGet('/api/admin/vendors/');
         if (mounted) setState(() => _vendors = (d['vendors'] as List?) ?? []);
+        // ⭐ v81: AUTO partners are managed from this page
+        await Future.wait([
+          _store.loadAdminAutoPartners(),
+          _store.loadAdminAutoCalls(),
+        ]);
+        if (mounted) setState(() {});
         _prewarmVendorPortals();
         break;
       case 3:
@@ -273,14 +280,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         if (mounted) {
           setState(() => _allStudents = (d['students'] as List?) ?? []);
         }
-        break;
-      case 6:
-        // ⭐ v81: auto partners + the call log
-        await Future.wait([
-          _store.loadAdminAutoPartners(),
-          _store.loadAdminAutoCalls(),
-        ]);
-        if (mounted) setState(() {});
         break;
       case 5:
         final r = await Future.wait([
@@ -369,7 +368,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   _ordersPage(),
                   _studentsPage(),
                   _controlPage(),
-                  _autoPage(),
                 ],
               ),
             ),
@@ -969,202 +967,55 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   // PAGE 2 — VENDORS: swipe between dedicated vendor pages; each opens
   // the vendor's EXACT portal (every bit identical to what they see).
   // ==================================================================
-  // PAGE 7 — AUTO: the auto partners, their duty state and the call log.
-  Widget _autoPage() {
-    final partners = context.watch<AppStore>().adminAutoPartners;
-    final others = context.watch<AppStore>().adminOtherPartners;
-    final calls = context.watch<AppStore>().adminAutoCalls;
-    return ListView(
-      padding: _pagePadding,
-      children: [
-        const SizedBox(height: 4),
-        Row(children: [
-          const Text('🛺',
-              style: TextStyle(fontSize: 16)),
-          const SizedBox(width: 8),
-          const Text('AUTO PORTAL',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
-          const Spacer(),
-          Text('${partners.length} partner${partners.length == 1 ? '' : 's'}',
-              style: const TextStyle(color: AppColors.muted, fontSize: 10.5)),
-        ]),
-        const SizedBox(height: 6),
-        const Text(
-            'Auto partners are their own accounts — they log in and get '
-            'the AUTO portal, never the car console. One tap of the AUTO '
-            'button on the student Ride screen calls every partner who is '
-            'on duty.',
-            style: TextStyle(
-                color: AppColors.muted, fontSize: 11, height: 1.45)),
-        const SizedBox(height: 14),
-        for (final p in partners) _autoPartnerCard(p),
-        const SizedBox(height: 18),
-        const Text('ADD AN AUTO PARTNER',
-            style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.2,
-                color: Color(0xFF8A8A8A))),
-        const SizedBox(height: 8),
-        _autoField(_autoName, 'Partner name'),
-        const SizedBox(height: 8),
-        _autoField(_autoPhone, 'Phone (his login)',
-            keyboard: TextInputType.phone),
-        const SizedBox(height: 8),
-        _autoField(_autoPass, 'Password', obscure: true),
-        const SizedBox(height: 10),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.red,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(vertical: 13),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(11)),
-            ),
-            onPressed: _addAutoPartner,
-            child: const Text('CREATE AUTO ACCOUNT',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
-          ),
-        ),
-        if (others.isNotEmpty) ...[
-          const SizedBox(height: 20),
-          const Text('MAKE A RIDE PARTNER AN AUTO PARTNER',
-              style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
-                  color: Color(0xFF8A8A8A))),
-          const SizedBox(height: 8),
-          for (final o in others) _autoOtherRow(o),
-        ],
-        const SizedBox(height: 20),
-        const Text('AUTO CALL LOG',
-            style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.2,
-                color: Color(0xFF8A8A8A))),
-        const SizedBox(height: 8),
-        if (calls.isEmpty)
-          const Text('No auto calls yet.',
-              style: TextStyle(color: AppColors.muted, fontSize: 11))
-        else
-          for (final c in calls) _autoCallRow(c),
-        SizedBox(height: 96 + MediaQuery.of(context).padding.bottom),
-      ],
-    );
-  }
+  // ---------------- AUTO partners (inside the Vendors page) ----------------
 
-  Widget _autoPartnerCard(Map<String, dynamic> p) {
-    final onDuty = (p['auto_online'] ?? false) == true;
+  /// ⭐ v81: AUTO is not a separate tab any more — this strip sits on
+  /// top of the Vendors page and opens the AUTO manager.
+  Widget _autoStrip() {
+    final partners = context.watch<AppStore>().adminAutoPartners;
+    final onDuty = partners
+        .where((p) => (p['auto_online'] ?? false) == true)
+        .length;
     return Container(
-      margin: const EdgeInsets.only(bottom: 9),
-      padding: const EdgeInsets.fromLTRB(13, 11, 8, 11),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
       decoration: BoxDecoration(
         color: AppColors.panel,
         borderRadius: BorderRadius.circular(13),
-        border: Border.all(
-            color: onDuty ? const Color(0x59F10B1D) : AppColors.line),
+        border: Border.all(color: const Color(0x59F10B1D)),
       ),
       child: Row(children: [
         Container(
-          width: 36,
-          height: 36,
+          width: 34,
+          height: 34,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: const Color(0x2EF10B1D),
-            borderRadius: BorderRadius.circular(11),
+            borderRadius: BorderRadius.circular(10),
           ),
-          child: const Text('🛺', style: TextStyle(fontSize: 17)),
+          child: const Text('🛺', style: TextStyle(fontSize: 16)),
         ),
-        const SizedBox(width: 11),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('${p['name'] ?? 'Auto partner'}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 12.5, fontWeight: FontWeight.w800)),
+              const Text('AUTO PARTNERS',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
               const SizedBox(height: 2),
               Text(
-                  '${p['phone'] ?? ''}'
-                  '${(p['vehicle_number'] ?? '').toString().isNotEmpty ? '  ·  ${p['vehicle_number']}' : ''}',
-                  style: const TextStyle(
-                      color: AppColors.muted, fontSize: 10.5)),
-              const SizedBox(height: 2),
-              Text('${p['accepted'] ?? 0} accepted of ${p['total_calls'] ?? 0}',
-                  style: const TextStyle(
-                      color: Color(0xFF747474), fontSize: 10)),
-            ],
-          ),
-        ),
-        Switch(
-          value: onDuty,
-          activeColor: AppColors.red,
-          onChanged: (v) async {
-            final ok = await _store.adminSetAutoPartner(
-                (p['vendor_id'] as num?)?.toInt() ?? 0, true, v);
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content: Text(ok
-                      ? 'Duty updated'
-                      : 'Could not update — try again')));
-            }
-          },
-        ),
-        IconButton(
-          tooltip: 'Remove from AUTO',
-          icon: const Icon(Icons.person_remove_alt_1_rounded,
-              size: 18, color: Color(0xFF8A8A8A)),
-          onPressed: () => _confirmRemoveAuto(p),
-        ),
-      ]),
-    );
-  }
-
-  Widget _autoOtherRow(Map<String, dynamic> o) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.fromLTRB(13, 10, 10, 10),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: Row(children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${o['name'] ?? 'Ride partner'}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 2),
-              Text('${o['phone'] ?? ''}',
+                  partners.isEmpty
+                      ? 'None yet — create one and he gets his own portal'
+                      : '$onDuty of ${partners.length} on duty · opens '
+                          'the AUTO portal',
                   style: const TextStyle(
                       color: AppColors.muted, fontSize: 10.5)),
             ],
           ),
         ),
         TextButton(
-          onPressed: () async {
-            final ok = await _store.adminSetAutoPartner(
-                (o['vendor_id'] as num?)?.toInt() ?? 0, true, true);
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content: Text(ok
-                      ? 'He is an AUTO partner now'
-                      : 'Could not update — try again')));
-            }
-          },
-          child: const Text('MAKE AUTO',
+          onPressed: _showAutoSheet,
+          child: const Text('MANAGE',
               style: TextStyle(
                   color: Color(0xFFFFABB2),
                   fontSize: 11,
@@ -1174,144 +1025,130 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     );
   }
 
-  Widget _autoCallRow(Map<String, dynamic> c) {
-    final status = '${c['status'] ?? ''}';
-    final (label, color) = switch (status) {
-      'accepted' => ('ACCEPTED', const Color(0xFFC9C9C9)),
-      'declined' => ('DECLINED', const Color(0xFF7A7A7A)),
-      'expired' => ('MISSED', const Color(0xFF7A7A7A)),
-      _ => ('PENDING', const Color(0xFFF10B1D)),
-    };
-    final dt = DateTime.tryParse('${c['created_at_iso'] ?? ''}')?.toLocal();
-    final when = dt == null
-        ? ''
-        : '${dt.day}/${dt.month} ${dt.hour.toString().padLeft(2, '0')}:'
-            '${dt.minute.toString().padLeft(2, '0')}';
-    return Container(
-      margin: const EdgeInsets.only(bottom: 7),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: AppColors.lineSoft),
-      ),
-      child: Row(children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${c['rider_name'] ?? 'Unanswered'}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 11.5, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 2),
-              Text('$when  ·  main gate',
-                  style: const TextStyle(
-                      color: Color(0xFF747474), fontSize: 10)),
-            ],
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: color.withOpacity(.14),
-            borderRadius: BorderRadius.circular(7),
-          ),
-          child: Text(label,
-              style: TextStyle(
-                  color: color, fontSize: 9, fontWeight: FontWeight.w800)),
-        ),
-      ]),
-    );
-  }
-
-  Widget _autoField(TextEditingController c, String hint,
-      {TextInputType keyboard = TextInputType.text, bool obscure = false}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: AppColors.inputBg,
-        borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: AppColors.inputBorder),
-      ),
-      child: TextField(
-        controller: c,
-        keyboardType: keyboard,
-        obscureText: obscure,
-        style: const TextStyle(fontSize: 12.5),
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle:
-              const TextStyle(color: AppColors.placeholder, fontSize: 12),
-          border: InputBorder.none,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _addAutoPartner() async {
-    final name = _autoName.text.trim();
-    final phone = _autoPhone.text.trim();
-    final pass = _autoPass.text.trim();
-    if (name.isEmpty || phone.length < 8 || pass.length < 4) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Name, a full phone number and a password '
-              '(4+ characters) are needed.')));
-      return;
-    }
-    final ok = await _store.adminCreateAutoPartner(name, phone, pass);
-    if (!mounted) return;
-    if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Could not create it — that phone may '
-              'already exist.')));
-      return;
-    }
-    _autoName.clear();
-    _autoPhone.clear();
-    _autoPass.clear();
-    FocusScope.of(context).unfocus();
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('AUTO account created')));
+  /// The whole AUTO manager: partners, duty switches, add / remove and
+  /// the call log — opened from the Vendors page.
+  Future<void> _showAutoSheet() async {
     await _store.loadAdminAutoPartners();
+    await _store.loadAdminAutoCalls();
+    if (!mounted) return;
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF161616),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final partners = context.watch<AppStore>().adminAutoPartners;
+          final others = context.watch<AppStore>().adminOtherPartners;
+          final calls = context.watch<AppStore>().adminAutoCalls;
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+                18, 12, 18, 18 + MediaQuery.of(ctx).viewInsets.bottom),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                        width: 38,
+                        height: 4,
+                        decoration: BoxDecoration(
+                            color: const Color(0xFF3A3A3A),
+                            borderRadius: BorderRadius.circular(2))),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(children: [
+                    const Text('🛺',
+                        style: TextStyle(fontSize: 16)),
+                    const SizedBox(width: 8),
+                    const Text('AUTO PARTNERS',
+                        style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w800)),
+                    const Spacer(),
+                    Text('${partners.length}',
+                        style: const TextStyle(
+                            color: AppColors.muted, fontSize: 11)),
+                  ]),
+                  const SizedBox(height: 6),
+                  const Text(
+                      'Each of them logs in with his own phone and gets the '
+                      'AUTO portal — never the car console. Open any of them '
+                      'from the vendor card below.',
+                      style: TextStyle(
+                          color: AppColors.muted, fontSize: 11, height: 1.45)),
+                  const SizedBox(height: 12),
+                  for (final p in partners) _autoPartnerCard(p),
+                  const SizedBox(height: 16),
+                  const Text('ADD AN AUTO PARTNER',
+                      style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.2,
+                          color: Color(0xFF8A8A8A))),
+                  const SizedBox(height: 8),
+                  _autoField(_autoName, 'Partner name'),
+                  const SizedBox(height: 8),
+                  _autoField(_autoPhone, 'Phone (his login)',
+                      keyboard: TextInputType.phone),
+                  const SizedBox(height: 8),
+                  _autoField(_autoPass, 'Password', obscure: true),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.red,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11)),
+                      ),
+                      onPressed: () async {
+                        await _addAutoPartner();
+                        if (ctx.mounted) setSheet(() {});
+                      },
+                      child: const Text('CREATE AUTO ACCOUNT',
+                          style: TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w800)),
+                    ),
+                  ),
+                  if (others.isNotEmpty) ...[
+                    const SizedBox(height: 18),
+                    const Text('MAKE A RIDE PARTNER AN AUTO PARTNER',
+                        style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.2,
+                            color: Color(0xFF8A8A8A))),
+                    const SizedBox(height: 8),
+                    for (final o in others) _autoOtherRow(o),
+                  ],
+                  const SizedBox(height: 18),
+                  const Text('AUTO CALL LOG',
+                      style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.2,
+                          color: Color(0xFF8A8A8A))),
+                  const SizedBox(height: 8),
+                  if (calls.isEmpty)
+                    const Text('No auto calls yet.',
+                        style:
+                            TextStyle(color: AppColors.muted, fontSize: 11))
+                  else
+                    for (final c in calls) _autoCallRow(c),
+                  const SizedBox(height: 22),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
     if (mounted) setState(() {});
-  }
-
-  Future<void> _confirmRemoveAuto(Map<String, dynamic> p) async {
-    final yes = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: const Color(0xFF151515),
-            title: const Text('Remove from AUTO?',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
-            content: Text(
-                '${p['name'] ?? 'This partner'} will stop receiving auto '
-                'calls. His account stays.',
-                style: const TextStyle(
-                    color: Color(0xFF9E9E9E), fontSize: 12)),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Keep',
-                    style: TextStyle(color: Color(0xFF8A8A8A))),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Remove',
-                    style: TextStyle(color: Color(0xFFF10B1D))),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-    if (!yes) return;
-    final ok = await _store.adminSetAutoPartner(
-        (p['vendor_id'] as num?)?.toInt() ?? 0, false, false);
-    if (mounted && !ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not update — try again')));
-    }
   }
 
   Widget _vendorsPage() {
@@ -1327,6 +1164,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       );
     }
     return Column(children: [
+      // ⭐ v81: AUTO partners are managed right here, with every other
+      // vendor — their cards below open the AUTO portal.
+      _autoStrip(),
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
         child: Row(children: [
@@ -1354,6 +1194,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       'hostel' => ('🛏', const Color(0xFFC9C9C9)),
       // ⭐ v66: ride partners (drivers) get their own console.
       'ride' => ('🛺', const Color(0xFFF5F5F5)),
+      // ⭐ v81: AUTO partners open their own AUTO portal.
+      'auto' => ('🛺', const Color(0xFFFF9CA4)),
       'food' => ('🍔', const Color(0xFFF5F5F5)),
       _ => ('🛍', AppColors.gold),
     };
@@ -1416,6 +1258,15 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           if (type == 'food')
             _kvRow('Kitchen',
                 (v['kitchen_open'] ?? true) as bool ? 'OPEN' : 'CLOSED'),
+          // ⭐ v81: an AUTO partner's duty state, right on his card
+          if (type == 'auto') ...[
+            _kvRow('Auto duty',
+                (v['auto_online'] ?? true) as bool ? 'ON DUTY' : 'OFF DUTY'),
+            _kvRow(
+                'Auto calls',
+                '${v['auto_accepted'] ?? 0} accepted of '
+                '${v['auto_calls'] ?? 0}'),
+          ],
           // ⭐ v50.1: admin manages the vendor's payment QR directly.
           _qrRow(v),
           const Spacer(),
@@ -2901,8 +2752,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       ('printout', '🖨 Printout'),
       ('hostel', '🛏 Hostel'),
       ('ride', '🛺 Ride Partner'),
+      // ⭐ v81: an AUTO partner — he gets his own AUTO portal.
+      ('auto', '🛺 AUTO Partner'),
       for (final sec in _sections)
-        if (!{'food', 'printout', 'hostel', 'ride'}.contains('${sec['key'] ?? ''}'))
+        if (!{'food', 'printout', 'hostel', 'ride', 'auto'}
+            .contains('${sec['key'] ?? ''}'))
           ((sec['key'] ?? '') as String,
               '${sec['icon'] ?? '🛍'} ${sec['title'] ?? ''}'),
     ];

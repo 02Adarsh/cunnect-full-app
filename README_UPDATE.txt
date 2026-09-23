@@ -1,6 +1,10 @@
-CUnnect v81 — a separate AUTO portal
+CUnnect v82 — the AUTO portal
 ==========================================================================
-(Cumulative: includes v61-v80.)
+(Cumulative: includes v61-v81.)
+
+v82 is the same code as v81 with the app version bumped to 82.
+Everything below shipped in v81 — one migration to run.
+
 
 ONE NEW MIGRATION THIS TIME (must run it once):
   python manage.py migrate      (ride.0012 = AutoCall table + auto_online)
@@ -45,6 +49,25 @@ Admin panel > AUTO (new last tab):
   * create a new AUTO account in one screen
   * MAKE AUTO on any ride partner (and remove him again)
   * the AUTO CALL LOG — who called, who answered, what happened
+
+=================================================================
+5) AUTO LIVES IN THE VENDORS PAGE (not a separate tab)
+=================================================================
+  * Auto partners are ordinary vendor accounts, so they appear in
+    VENDORS with every food / printout / hostel / ride partner.
+  * Their card shows the AUTO badge, ON DUTY / OFF DUTY and
+    "N accepted of M" auto calls.
+  * "Open Vendor Portal" on an AUTO card opens the AUTO portal —
+    exactly like a food vendor opens the food dashboard.
+  * A strip at the top of the Vendors page says how many auto partners
+    are on duty; MANAGE opens everything in one sheet:
+      - switch a partner on / off duty
+      - remove him from AUTO (his account stays)
+      - create a new AUTO account (name, phone, password)
+      - turn any ride partner into an AUTO partner
+      - the AUTO CALL LOG
+  * STORE > Add vendor now offers "AUTO Partner" as a type, so an auto
+    partner can be created from there too.
 
 =================================================================
 4) ALSO IN THIS BUILD (v80b, backend only)
