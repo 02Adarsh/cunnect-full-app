@@ -18,19 +18,26 @@ class RideColors {
   static const Color cardHi = Color(0xFF1A1A1A);
   static const Color line = Color(0xFF262626);
   static const Color lineSoft = Color(0xFF1D1D1D);
-  static const Color mint = Color(0xFF98E6B0);
-  static const Color amber = Color(0xFFFFC978);
-  static const Color sky = Color(0xFF8EC5FF);
-  static const Color violet = Color(0xFFC4A6FF);
+  // ⭐ v77: the neon mint / amber / sky / violet accents are GONE. The
+  // Ride section is now pure CUnnect — black, white and red only. The old
+  // names are kept (so every screen keeps working) but they now point at
+  // neutral shades of the theme.
+  static const Color white = Color(0xFFF5F5F5);
+  static const Color soft = Color(0xFFC9C9C9);
+  static const Color mint = white;
+  static const Color amber = soft;
+  static const Color sky = soft;
+  static const Color violet = soft;
   static Color get red => AppColors.red;
   static Color get muted => AppColors.muted;
 }
 
 /// Vehicle accent colours — every vehicle gets its own identity.
 Color rideVehicleTint(String key) => switch (key) {
-      'mini' => RideColors.mint,
-      'sedan' => RideColors.sky,
-      'xl' => RideColors.violet,
+      'mini' => RideColors.white,
+      'sedan' => RideColors.soft,
+      // ⭐ v77: "Car XL" is SUV now
+      'suv' || 'xl' => AppColors.red,
       _ => AppColors.red,
     };
 

@@ -635,6 +635,9 @@ class PrintOrder {
   final PrintOrderStatus status;
   final double totalPrice;
   final DateTime createdAt;
+  // ⭐ v80: hand-over OTP — the student shows it, the vendor types it in.
+  final String deliveryOtp;
+  final bool otpVerified;
 
   PrintOrder({
     required this.id,
@@ -658,6 +661,8 @@ class PrintOrder {
     required this.status,
     required this.totalPrice,
     required this.createdAt,
+    this.deliveryOtp = '',
+    this.otpVerified = false,
   });
 
   factory PrintOrder.fromJson(Map<String, dynamic> json, String Function(String) media) {
@@ -684,6 +689,8 @@ class PrintOrder {
       totalPrice: ((json['total_price'] ?? 0) as num).toDouble(),
       createdAt: DateTime.tryParse((json['created_at_iso'] ?? '') as String) ??
           DateTime.now(),
+      deliveryOtp: (json['delivery_otp'] ?? '') as String,
+      otpVerified: (json['otp_verified'] ?? false) == true,
     );
   }
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'app_portal.dart';
+import '../widgets/common.dart' show showCunnectToast;
 import '../widgets/ride_event_popup.dart';
 
 /// One notification about a ride (student or ride-partner side).
@@ -46,6 +47,7 @@ class RideEvent {
 
   static const _riderOnly = {
     'new_request',
+    'auto_call',
     'payment_received',
     'paid',
     'balance_paid',
@@ -144,12 +146,13 @@ class RideEvents {
     if (kind.isEmpty && '${data['ride_code'] ?? ''}'.isEmpty) return;
     final ev = RideEvent.fromData(data,
         title: title, body: body, riderSide: riderSide);
+    // ⭐ v77: the gate happens FIRST — a rider event never even reaches the
+    // student's screens (and the other way round). Screens listen to
+    // [stream], so letting it through used to paint the partner's
+    // confirm-payment popup and the student's OTP on the wrong side.
     _last = ev;
-    if (!_bus.isClosed) _bus.add(ev);
-    // ⭐ v75: a rider event only pops up inside the RIDE PARTNER portal and
-    // a student event only inside the student side. The tray notification
-    // is unaffected — that one must work with the screen off.
     if (!ActivePortal.accepts(ev.riderSide ? 'rider' : 'student')) return;
+    if (!_bus.isClosed) _bus.add(ev);
     if (fromTap) {
       _pending = ev; // the ride screen will show it once it is open
       final ctx = context;
@@ -178,9 +181,37 @@ class RideEvents {
     await show(context, ev);
   }
 
+  /// ⭐ v77: true when this event belongs to the portal on screen.
+  /// Screens call this before showing anything from the stream.
+  static bool belongsHere(RideEvent ev) =>
+      ActivePortal.accepts(ev.riderSide ? 'rider' : 'student');
+
+  /// ⭐ v78: money confirmations must never BLOCK the student's ride
+  /// screen. They already arrive as a tray notification, so in-app they
+  /// are a toast only — the ride keeps flowing underneath.
+  static const _toastOnly = {
+    'payment_done', // student paid the first half / the full fare
+    'balance_done', // student cleared the remaining 50%
+    'balance_cleared', // rider took the balance in cash
+    'confirmed', // rider verified the payment
+  };
+
+  static String _toastText(RideEvent ev) {
+    final title = ev.title.trim();
+    final body = ev.body.trim();
+    if (title.isNotEmpty && body.isNotEmpty) return '$title \u00b7 $body';
+    return title.isNotEmpty
+        ? title
+        : (body.isNotEmpty ? body : _fallbackTitle(ev.kind));
+  }
+
   /// Raise the popup for an event.
   static Future<void> show(BuildContext context, RideEvent ev) async {
     if (!context.mounted) return;
+    if (!ev.riderSide && _toastOnly.contains(ev.kind)) {
+      showCunnectToast(context, _toastText(ev));
+      return;
+    }
     await RideEventPopup.show(
       context,
       event: ev.kind,
@@ -206,6 +237,7 @@ class RideEvents {
         'accepted' => RideEventAction.pay,
         'rejected' || 'no_rider' || 'cancelled' => RideEventAction.rebook,
         'sos' => RideEventAction.map,
+        'auto_call' => RideEventAction.none,
         _ => RideEventAction.track,
       };
 
@@ -223,6 +255,7 @@ class RideEvents {
         'completed' => 'Ride completed',
         'cancelled' => 'Ride cancelled',
         'sos' => 'SOS from a passenger',
+        'auto_call' => 'Auto needed at the main gate \U0001f6fa',
         _ => 'CUnnect Ride',
       };
 
@@ -239,6 +272,8 @@ class RideEvents {
         'started' => 'Have a safe trip!',
         'completed' => 'Thanks for riding with CUnnect.',
         'cancelled' => 'This ride has been cancelled.',
+        'auto_call' => 'A student is waiting at the campus main gate for an '
+            'auto. Head there if you are free.',
         _ => 'Tap to open the ride.',
       };
 }

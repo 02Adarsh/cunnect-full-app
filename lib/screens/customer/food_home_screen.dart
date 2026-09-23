@@ -135,7 +135,7 @@ class _FoodHomeScreenState extends State<FoodHomeScreen> {
                 clipBehavior: Clip.none,
                 children: [
                   const Icon(Icons.notifications_outlined,
-                      size: 18, color: Color(0xFFE8B84B)),
+                      size: 18, color: Color(0xFFF5F5F5)),
                   if (unread > 0)
                     Positioned(
                       top: -4,

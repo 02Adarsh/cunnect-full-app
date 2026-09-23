@@ -75,7 +75,7 @@ class _DeliveryDashboardScreenState extends State<DeliveryDashboardScreen> {
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
-                    color: store.deliveryAlertsEnabled ? const Color(0xFF9BE7B4) : const Color(0xFFEEEEEE),
+                    color: store.deliveryAlertsEnabled ? const Color(0xFFF5F5F5) : const Color(0xFFEEEEEE),
                   ),
                 ),
               ),
@@ -230,7 +230,7 @@ class _DeliveryDashboardScreenState extends State<DeliveryDashboardScreen> {
                                       const SizedBox(height: 3),
                                       const Text('Delivered ✓',
                                           style: TextStyle(
-                                              color: Color(0xFF93E7AE),
+                                              color: Color(0xFFF5F5F5),
                                               fontSize: 10,
                                               fontWeight: FontWeight.w800)),
                                     ],
@@ -515,7 +515,7 @@ class _ActiveDeliveryCardState extends State<_ActiveDeliveryCard> {
                       }
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.green,
+                      backgroundColor: AppColors.red,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
                       textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),

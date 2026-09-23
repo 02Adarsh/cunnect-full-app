@@ -1,3 +1,250 @@
+CUnnect v80 — OTP verification in every store section
+==========================================================================
+(Cumulative: includes v61-v79.)
+
+ONE NEW MIGRATION THIS TIME (must run it once):
+  python manage.py migrate      (myapp.0035 = print + hostel OTP columns)
+
+=================================================================
+1) EVERY STORE ORDER NOW NEEDS THE STUDENT'S OTP       (your request)
+=================================================================
+Food already worked this way — printout and Hostel Essentials now
+work exactly the same, and nothing else can finish an order:
+
+  * PRINTOUT — the partner cannot press "Complete" any more. He taps
+    it, a sheet opens asking for the 4-digit OTP, and the job is
+    completed by the server the moment the code matches.
+  * HOSTEL ESSENTIALS — the vendor cannot mark an order "delivered"
+    any more. He taps DELIVERED, types the OTP the student reads out
+    at the door, and the order is delivered only if it matches.
+
+THE RULE, IN ONE LINE
+  No OTP = no completion. Without the code a print job stays "ready"
+  forever and a hostel order stays "out for delivery" forever.
+
+=================================================================
+2) WHERE THE OTP IS SEEN
+=================================================================
+  * STUDENT — "My Print Orders" shows a red OTP card as soon as the
+    job is READY. Hostel Essentials gains a brand-new "MY ORDERS"
+    section at the bottom of the page that shows every order, its
+    status and — once the vendor accepts — the OTP to show at the
+    door. It refreshes every 10 seconds on its own.
+  * VENDOR — never sees the OTP. He can only type it in. The vendor
+    list and dashboard carry an "otp_verified" flag instead.
+
+  Wrong code -> nothing happens, the order does not move.
+  Verifying twice -> harmless, the second call is silently accepted.
+
+=================================================================
+3) BUG FIXED ON THE WAY
+=================================================================
+  The hostel vendor's status endpoint was crashing (500) on every
+  ACCEPT / DELIVERED tap because it notified `order.user_id`, a
+  field a HostelOrder never had. It now notifies the student who
+  actually placed the order, so hostel orders can be accepted and
+  delivered at all.
+
+=================================================================
+CUnnect v79 — the AUTO button, several rides at once, red Ride
+section again, green flash messages back, car model before payment
+==========================================================================
+(Cumulative: includes v61-v78.)
+
+ONE NEW MIGRATION THIS TIME:
+  python manage.py migrate      (ride.0011 = RideVendor.is_auto)
+
+=================================================================
+1) THE AUTO BUTTON                                     (your request)
+=================================================================
+A plain, separate AUTO card now sits on the Ride screen:
+  * ONE TAP and every AUTO PARTNER on campus is alerted at the same
+    moment — their phones ring for 20 seconds, all together.
+  * NO pickup, no drop, no fare, no payment, no OTP and no ride
+    record: it is simply "come to the main gate".
+  * The pickup is always the campus MAIN GATE. It is never typed,
+    never asked for and never shown to the student — the partners
+    already know it.
+  * Tap it as many times as you like; every tap alerts them again.
+
+WHO IS AN AUTO PARTNER
+  * Ride portal > Profile > "I drive an auto" — switch it ON and that
+    partner receives the auto calls. Car partners are never disturbed.
+  * There can be as many auto partners as you want. Every one of them
+    is notified on every tap.
+  * An auto partner is completely outside the car booking flow: he
+    gets no fare, no ride list entry and no OTP screen.
+
+=================================================================
+2) SEVERAL RIDES AT THE SAME TIME                      (your request)
+=================================================================
+A car partner can now accept, run and close as many rides as he can
+handle, at the same time:
+  * "My Ride" lists EVERY active ride — each with its own card, its
+    own map, its own payment panel, its own OTP field and its own
+    buttons (I'M ON LOCATION / START RIDE / COMPLETE RIDE).
+  * A banner shows "N rides running together".
+  * His live location is pushed to all of them at once.
+  * Finishing one ride leaves the others untouched; the partner's
+    totals count each ride exactly once.
+
+=================================================================
+3) THE CAR MODEL SHOWS ON ACCEPT — BEFORE PAYMENT       (your request)
+=================================================================
+The moment a rider accepts, the student sees "YOUR CAR": the vehicle
+model and the category (e.g. "Swift · Mini"). The number plate and
+the phone number still wait until the payment is verified.
+
+=================================================================
+4) THE RIDE SECTION IS RED AGAIN                        (your request)
+=================================================================
+Everything in Ride that had gone white is red again — the OTP card,
+the SHARE OTP button, the rider's OTP box and the online chip.
+
+=================================================================
+5) FLASH MESSAGES ARE GREEN AGAIN                       (your request)
+=================================================================
+The success toast is back to its green look (green tick, light green
+text, dark green card). Only the ERROR toast stays red.
+
+=================================================================
+
+
+CUnnect v78 — balance locks the ride, no blocking payment popups,
+every popup red & black, OPEN MAP for the student, CUnnect Food
+==========================================================================
+(Cumulative: includes v61-v77.)
+
+ONE NEW MIGRATION THIS TIME:
+  python manage.py migrate      (ride.0010 = awaiting_balance field +
+                                 "Food Court" renamed to "CUnnect Food")
+
+=================================================================
+1) A 50-50 RIDE NOW CANNOT BE CLOSED UNTIL IT IS PAID  (your request)
+=================================================================
+  * The rider taps COMPLETE RIDE while the second half is still due ->
+    the ride does NOT close. It parks with "Waiting for the student to
+    pay Rs.X" on the partner's screen.
+  * The student gets "PAY TO CLOSE THIS RIDE" with the QR already built
+    (no button) and a transaction-ID field. The moment it is recorded
+    the ride completes by itself and both sides are told.
+  * The ride also cannot be cancelled to dodge the payment.
+  * A partner who is paid cash still has "COLLECT Rs.X FROM THE STUDENT"
+    as the safety valve — that closes the ride and stores CASH as the
+    transaction id.
+
+BALANCE TRANSACTION ID ON THE RIDE PORTAL                 (your request)
+  * The payment panel now shows two lines:
+        Txn 1 ....... <first half / full payment>
+        Balance txn . <transaction id of the remaining 50%>
+  * History shows it too, labelled "Balance txn".
+
+=================================================================
+2) NO BLOCKING "PAYMENT RECEIVED" POPUP ON THE STUDENT  (your request)
+=================================================================
+The student's Ride screen stays clean. Payment news arrives as a tray
+notification plus a small toast at the bottom — never as a popup that
+covers the ride. That covers: first half paid, balance paid, balance
+taken in cash, and "the rider confirmed your payment".
+Ride popups that DO matter (rider accepted, OTP, ride started,
+completed, cancelled) still open normally.
+
+=================================================================
+3) EVERY POPUP IN THE APP IS NOW RED / BLACK / WHITE   (your request)
+=================================================================
+Every dialogue, bottom sheet and toast in CUnnect was re-coloured.
+The last green, gold, blue and violet accents are gone — including the
+online dots, switches, status chips, chart legends and the success
+toast. Everything sits on black, white and CUnnect red.
+
+=================================================================
+4) OPEN MAP ON THE STUDENT'S RIDE SCREEN               (your request)
+=================================================================
+Once the ride has started (OTP verified) the SAFETY card grows an
+"OPEN MAP" button. It opens Google Maps with the route to the
+destination, exactly like the ride partner's portal does.
+
+=================================================================
+5) "Food Court" IS NOW "CUnnect Food"                  (your request)
+=================================================================
+Renamed in the built-in store section (database row included) and in
+the flash messages: "CUnnect Food is coming soon." / "CUnnect Food is
+currently unavailable."
+
+=================================================================
+
+
+CUnnect v77 — portal privacy, garage (many cars + plates), SUV,
+real-time fare split, payment QR like the food section, no neon
+==========================================================================
+(Cumulative: includes v61-v76.)
+
+ONE NEW MIGRATION THIS TIME:
+  python manage.py migrate      (ride.0009 = SUV rename, ride.vehicle_name
+                                 / vehicle_plate, RideVehicle garage table)
+
+=================================================================
+1) NOTHING LEAKS BETWEEN THE TWO PORTALS      (your request)
+=================================================================
+Ride events are now filtered on the PHONE as well: a partner event
+never reaches the student's Ride screen and a student event never
+reaches the ride partner portal. Screens double-check before they
+paint anything, so:
+  * CONFIRM PAYMENT lives on the RIDER's device only
+  * the payment-confirmation notification goes to the STUDENT only
+  * the OTP stays with the student
+  * the partner's accept / arrival popups never open on the student side
+
+CONTACT NUMBERS — hidden at BOTH ends until the rider accepts AND
+verifies the payment:
+  * rider sees "Number appears once the payment is verified" until he
+    taps CONFIRM PAYMENT; after that he gets a CALL button and a MASKED
+    number (98XXXXX210) — the digits only ever reach the phone's dialer
+  * student sees the rider's number only after the payment is verified
+  * the NUMBER PLATE behaves the same way: model + category from the
+    moment the ride is accepted, plate only after verification
+
+=================================================================
+2) GARAGE — MANY CARS, EACH WITH ITS PLATE     (your request)
+=================================================================
+  * Ride portal > Profile > MY VEHICLES: add any number of cars
+    (Mini / Sedan / SUV) with a name and a number plate; delete any.
+  * Accepting a request opens "Which car are you driving?" — the whole
+    saved list (all categories) plus "Use another vehicle" for a one-off
+    that is NOT saved in the garage.
+  * ⭐ "Car XL" is now SUV everywhere (labels, icons, estimate, admin).
+
+=================================================================
+3) SPLIT BETWEEN FRIENDS = A PRIVATE CALCULATOR (your request)
+=================================================================
+  * Type how many passengers are travelling (driver not counted) with
+    − / + and the per-head share updates instantly: fare / n.
+  * Nothing is saved on the server and the rider never sees it — it is
+    a calculator, nothing else. The app still takes the whole fare.
+  * The old "pax" list (names, per-friend rows) is gone from the UI.
+
+=================================================================
+4) PAYMENT QR — EXACTLY LIKE THE FOOD SECTION  (your request)
+=================================================================
+  * The QR is generated on its own the moment the payment step opens
+    (no "SHOW PAYMENT QR" button to press).
+  * Works from the rider's UPI id, from the QR IMAGE he uploaded in the
+    portal (this used to fail — that is why no QR ever appeared), or
+    from the platform account as a last resort.
+  * The amount is baked in (upi://pay?...&am=<fare>) and "PAY Rs.X IN A
+    UPI APP" opens it in PhonePe/GPay/Paytm pre-filled. 50-50 works the
+    same for the first half and for the balance.
+
+=================================================================
+5) UI — NO MORE NEON
+=================================================================
+The light green / amber / sky / violet accents are gone from the Ride
+section (and the same mint was removed from the rest of the app). The
+Ride UI is now black, white and red only, matching CUnnect.
+
+=================================================================
+
+
 CUnnect v76 — UMS 1-month prediction, subject lecture planner,
 rider sees the number only after confirming, small UI fixes
 ==========================================================================

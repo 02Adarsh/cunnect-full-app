@@ -93,11 +93,11 @@ class _HostelProductsScreenState extends State<HostelProductsScreen> {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(14),
                     color: open
-                        ? const Color(0x1738B765)
+                        ? const Color(0x17F5F5F5)
                         : const Color(0x1FF10B1D),
                     border: Border.all(
                         color: open
-                            ? const Color(0x7338B765)
+                            ? const Color(0x73F5F5F5)
                             : const Color(0xA6F10B1D)),
                   ),
                   child: Row(children: [
@@ -107,7 +107,7 @@ class _HostelProductsScreenState extends State<HostelProductsScreen> {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: open
-                            ? const Color(0xFF7ED98B)
+                            ? const Color(0xFFF5F5F5)
                             : const Color(0xFFF10B1D),
                       ),
                     ),
@@ -122,7 +122,7 @@ class _HostelProductsScreenState extends State<HostelProductsScreen> {
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: .8,
                                   color: open
-                                      ? const Color(0xFF9BE7B4)
+                                      ? const Color(0xFFF5F5F5)
                                       : const Color(0xFFFFABB2))),
                           const SizedBox(height: 2),
                           Text(
@@ -178,7 +178,7 @@ class _HostelProductsScreenState extends State<HostelProductsScreen> {
                           ),
                           child: const Text('EDIT',
                               style: TextStyle(
-                                  color: Color(0xFF9ECBFF),
+                                  color: Color(0xFFC9C9C9),
                                   fontSize: 8.5,
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: .6)),
@@ -433,7 +433,7 @@ class _HostelProductsScreenState extends State<HostelProductsScreen> {
                       ' · ${photos.length} photo${photos.length == 1 ? '' : 's'}',
                       style: TextStyle(
                           color: stock > 0 && stock <= 3
-                              ? const Color(0xFFFFD34D)
+                              ? const Color(0xFFF5F5F5)
                               : AppColors.muted,
                           fontSize: 9.5)),
                 ],
@@ -442,7 +442,7 @@ class _HostelProductsScreenState extends State<HostelProductsScreen> {
             // available / unavailable switch (like the food menu)
             Switch(
               value: active,
-              activeColor: AppColors.green,
+              activeColor: AppColors.red,
               onChanged: (_) async {
                 final was = active;
                 setState(() => p['is_active'] = !was);
@@ -473,7 +473,7 @@ class _HostelProductsScreenState extends State<HostelProductsScreen> {
               child: _actionChip(
                   icon: Icons.edit_outlined,
                   label: 'EDIT',
-                  color: const Color(0xFF9ECBFF),
+                  color: const Color(0xFFC9C9C9),
                   onTap: () => _showProductForm(product: p)),
             ),
             const SizedBox(width: 8),
@@ -481,7 +481,7 @@ class _HostelProductsScreenState extends State<HostelProductsScreen> {
               child: _actionChip(
                   icon: Icons.photo_library_outlined,
                   label: 'PHOTOS (${photos.length})',
-                  color: const Color(0xFFFFD34D),
+                  color: const Color(0xFFF5F5F5),
                   onTap: () => _showPhotoManager(p)),
             ),
             const SizedBox(width: 8),

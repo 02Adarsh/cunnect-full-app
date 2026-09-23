@@ -36,8 +36,8 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
   static const _surface = Color(0xFF0F0F11);
   static const _muted = Color(0xFF87878D);
   static const _soft = Color(0xFFB7B7BC);
-  static const _grn = Color(0xFF16A34A);
-  static const _emerald = Color(0xFF10B981);
+  static const _grn = Color(0xFFF5F5F5);
+  static const _emerald = Color(0xFFF5F5F5);
 
   static const _tabs = [
     ('\u25CD', 'ATTENDANCE'),
@@ -1209,12 +1209,12 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 9, vertical: 4),
                             decoration: BoxDecoration(
-                              color: next ? const Color(0xFF16A34A) : _red,
+                              color: next ? const Color(0xFF3A3A3A) : _red,
                               borderRadius: BorderRadius.circular(20),
                               boxShadow: [
                                 BoxShadow(
                                     color: (next
-                                            ? const Color(0xFF16A34A)
+                                            ? const Color(0xFF3A3A3A)
                                             : _red)
                                         .withOpacity(.5),
                                     blurRadius: 12,
@@ -4255,7 +4255,7 @@ class _PredictSheetState extends State<_PredictSheet> {
   static const _hair = Color(0xFF242424);
   static const _muted = Color(0xFF9D9D9D);
   static const _soft = Color(0xFFC9C9C9);
-  static const _green = Color(0xFF34D399);
+  static const _green = Color(0xFFF5F5F5);
 
   Widget _mono(String text, double size,
           {Color color = Colors.white, FontWeight w = FontWeight.w700}) =>
@@ -4458,7 +4458,7 @@ class _PredictSheetState extends State<_PredictSheet> {
                             runSpacing: 6,
                             children: [
                               _chip('✓ ${widget.attended.round()}',
-                                  bg: const Color(0x2634D399), fg: _green),
+                                  bg: const Color(0x26F5F5F5), fg: _green),
                               _chip('✗ $missed',
                                   bg: const Color(0x26EC1C24), fg: _red),
                               if (totalAdd > 0)
@@ -4586,7 +4586,7 @@ class _PredictSheetState extends State<_PredictSheet> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: const Color(0x2634D399),
+                            color: const Color(0x26F5F5F5),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: _mono('+$add', 8.5,

@@ -422,13 +422,13 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 11, vertical: 10),
                           decoration: BoxDecoration(
-                            color: const Color(0x142ECC71),
+                            color: const Color(0x14F5F5F5),
                             borderRadius: BorderRadius.circular(9),
-                            border: Border.all(color: const Color(0x662ECC71)),
+                            border: Border.all(color: const Color(0x66F5F5F5)),
                           ),
                           child: Text(_info!,
                               style: const TextStyle(
-                                  color: Color(0xFF9BE8B8),
+                                  color: Color(0xFFF5F5F5),
                                   fontSize: 12,
                                   height: 1.4)),
                         ),
@@ -660,7 +660,7 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0x99D4C7A3)),
+                border: Border.all(color: const Color(0x99C9C9C9)),
               ),
               child: const Text('CLICK HERE FOR REGISTRATION',
                   style: TextStyle(
@@ -907,7 +907,7 @@ class _StudentLoginScreenState extends State<StudentLoginScreen> {
         title: Row(
           children: const [
             Icon(Icons.smartphone_rounded,
-                color: Color(0xFFFFD34D), size: 20),
+                color: Color(0xFFF5F5F5), size: 20),
             SizedBox(width: 10),
             Expanded(
               child: Text('Already signed in',

@@ -232,7 +232,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
           decoration: BoxDecoration(
             color: const Color(0xFF111111),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0x7338B765)),
+            border: Border.all(color: const Color(0x73F5F5F5)),
           ),
           child: Column(
             children: [
@@ -241,11 +241,11 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 height: 62,
                 decoration: const BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Color(0x1738B765),
+                  color: Color(0x17F5F5F5),
                 ),
                 child: const Center(
                     child: Icon(Icons.check_rounded,
-                        size: 34, color: Color(0xFF7ED98B))),
+                        size: 34, color: Color(0xFFF5F5F5))),
               ),
               const SizedBox(height: 14),
               const Text('Password changed!',

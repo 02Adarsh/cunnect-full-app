@@ -63,7 +63,8 @@ class _RideHomeScreenState extends State<RideHomeScreen>
 
   List<Map<String, dynamic>> _saved = [];
   List<Map<String, dynamic>> _recent = [];
-  List<Map<String, dynamic>> _pax = [];
+  // ⭐ v77: how many friends are sharing (driver not counted)
+  int _seats = 1;
   List<Map<String, dynamic>> _contacts = [];
 
   static const _kSaved = 'ride_saved_places';
@@ -198,6 +199,10 @@ class _RideHomeScreenState extends State<RideHomeScreen>
                     _routeCard(),
                     const SizedBox(height: 14),
                     _placesRow(),
+                    const SizedBox(height: 14),
+                    // ⭐ v79: the AUTO button — one tap, no pickup, no
+                    // drop, no fare: every auto partner is alerted at once.
+                    _autoCard(),
                     const SizedBox(height: 16),
                     if (_pickupLat != null && _dropLat != null) ...[
                       _chooseRide(store),
@@ -949,7 +954,8 @@ class _RideHomeScreenState extends State<RideHomeScreen>
           ),
         ],
         const SizedBox(height: 10),
-        // split the fare with friends
+        // ⭐ v77: SPLIT WITH FRIENDS — a private calculator, nothing is
+        // saved and the rider never sees it.
         GestureDetector(
           onTap: () => setState(() => _splitWithFriends = !_splitWithFriends),
           child: Container(
@@ -962,7 +968,7 @@ class _RideHomeScreenState extends State<RideHomeScreen>
             child: Row(
               children: [
                 const Icon(Icons.groups_rounded,
-                    size: 16, color: RideColors.violet),
+                    size: 16, color: Colors.white70),
                 const SizedBox(width: 10),
                 const Expanded(
                   child: Text('Split the fare with friends',
@@ -973,7 +979,7 @@ class _RideHomeScreenState extends State<RideHomeScreen>
                 ),
                 Switch(
                   value: _splitWithFriends,
-                  activeColor: RideColors.violet,
+                  activeColor: AppColors.red,
                   onChanged: (v) => setState(() => _splitWithFriends = v),
                 ),
               ],
@@ -982,55 +988,88 @@ class _RideHomeScreenState extends State<RideHomeScreen>
         ),
         if (_splitWithFriends) ...[
           const SizedBox(height: 9),
-          ..._pax.asMap().entries.map((e) {
-            final i = e.key;
-            final p = e.value;
+          Builder(builder: (_) {
+            final opts = store.rideOptions;
+            num fare = 0;
+            for (final o in opts) {
+              if (o is Map && '${o['key'] ?? ''}' == _vehicle) {
+                fare = (o['fare'] as num?) ?? 0;
+                break;
+              }
+            }
+            final perHead = _seats > 0 ? fare / _seats : fare;
             return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
               decoration: BoxDecoration(
                 color: const Color(0xFF0F0F0F),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(13),
                 border: Border.all(color: RideColors.line),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Text('${p['name']}',
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 12.5)),
-                  ),
-                  Text('₹${(p['amount'] as num).toStringAsFixed(0)}',
-                      style: const TextStyle(
-                          color: RideColors.violet,
-                          fontSize: 12.5,
+                  const Text('PASSENGERS (DRIVER NOT COUNTED)',
+                      style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 9,
+                          letterSpacing: 1.6,
+                          color: Color(0xFF8A8A8A),
                           fontWeight: FontWeight.w800)),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () => setState(() => _pax.removeAt(i)),
-                    child: const Icon(Icons.close_rounded,
-                        size: 16, color: Color(0xFF8A8A8A)),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      _stepBtn(Icons.remove_rounded,
+                          () => setState(() => _seats = _seats > 1 ? _seats - 1 : 1)),
+                      const SizedBox(width: 16),
+                      SizedBox(
+                        width: 30,
+                        child: Text('$_seats',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800)),
+                      ),
+                      const SizedBox(width: 16),
+                      _stepBtn(Icons.add_rounded,
+                          () => setState(() => _seats = _seats < 8 ? _seats + 1 : 8)),
+                      const Spacer(),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text('₹${perHead.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800)),
+                          const Text('per person',
+                              style: TextStyle(
+                                  color: Color(0xFF8A8A8A), fontSize: 10.5)),
+                        ],
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 12),
+                  Text(
+                      '₹${fare.toStringAsFixed(0)} total  ÷  $_seats  =  '
+                      '₹${perHead.toStringAsFixed(1)} each',
+                      style: const TextStyle(
+                          color: Color(0xFFC9C9C9),
+                          fontSize: 11.5,
+                          height: 1.45)),
+                  const SizedBox(height: 7),
+                  const Text(
+                      'Only for your own calculation — the app takes the '
+                      'whole fare from you and none of this is shared with '
+                      'the rider.',
+                      style: TextStyle(
+                          color: Color(0xFF6A6A6A),
+                          fontSize: 10.5,
+                          height: 1.45)),
                 ],
               ),
             );
           }),
-          SizedBox(
-            width: double.infinity,
-            height: 42,
-            child: OutlinedButton.icon(
-              onPressed: _addPax,
-              icon: const Icon(Icons.person_add_rounded, size: 16),
-              label: const Text('ADD A FRIEND',
-                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800)),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: RideColors.violet,
-                side: BorderSide(color: RideColors.violet.withOpacity(.5)),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ),
         ],
         const SizedBox(height: 10),
         TextField(
@@ -1041,6 +1080,21 @@ class _RideHomeScreenState extends State<RideHomeScreen>
       ],
     );
   }
+
+  Widget _stepBtn(IconData icon, VoidCallback onTap) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 34,
+          height: 34,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: const Color(0xFF171717),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: RideColors.line),
+          ),
+          child: Icon(icon, size: 17, color: Colors.white),
+        ),
+      );
 
   // --------------------------------------------------------- stats
 
@@ -1339,55 +1393,6 @@ class _RideHomeScreenState extends State<RideHomeScreen>
     });
   }
 
-  Future<void> _addPax() async {
-    final name = TextEditingController();
-    final amount = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF121212),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Add a friend',
-            style: TextStyle(color: Colors.white, fontSize: 16)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-                controller: name,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                    hintText: 'Name',
-                    hintStyle: TextStyle(color: Color(0xFF6A6A6A)))),
-            TextField(
-                controller: amount,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                    hintText: 'Their share (₹)',
-                    hintStyle: TextStyle(color: Color(0xFF6A6A6A)))),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel',
-                  style: TextStyle(color: Color(0xFF8A8A8A)))),
-          TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Add',
-                  style: TextStyle(color: AppColors.red))),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final amt = double.tryParse(amount.text.trim()) ?? 0;
-    if (name.text.trim().isEmpty || amt <= 0) {
-      _toast('Enter a name and their share.');
-      return;
-    }
-    setState(() => _pax.add({'name': name.text.trim(), 'amount': amt}));
-  }
-
   Future<void> _book() async {
     if (_busy) return;
     if (_when == null) {
@@ -1428,13 +1433,8 @@ class _RideHomeScreenState extends State<RideHomeScreen>
     }
     final ride = Map<String, dynamic>.from(res['ride'] as Map? ?? {});
     final code = '${ride['ride_code']}';
-    // ⭐ the fare split is stored on the ride once it exists
-    for (final p in _pax) {
-      await store.ridePaxAdd(code,
-          name: '${p['name']}',
-          phone: '',
-          amount: (p['amount'] as num).toDouble());
-    }
+    // ⭐ v77: the friend-split is a private calculator — nothing is sent
+    // to the server and the rider never sees it.
     if (!mounted) return;
     if ('${res['message'] ?? ''}'.isNotEmpty) {
       _toast('${res['message']}');
@@ -1468,6 +1468,104 @@ class _RideHomeScreenState extends State<RideHomeScreen>
     final text = 'I am taking a CUnnect ride$when — $where. Live: $link';
     await openExternalUrl(
         'https://wa.me/?text=${Uri.encodeComponent(text)}');
+  }
+
+  // ------------------------------- AUTO ------------------------------
+
+  bool _autoBusy = false;
+
+  /// ⭐ v79: a plain "call the autos" card. There is nothing to fill in —
+  /// the pickup is always the campus main gate, which the auto partners
+  /// already know, so it is never spelled out here.
+  Widget _autoCard() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111111),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.red.withOpacity(.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.red.withOpacity(.13),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.red.withOpacity(.35)),
+                ),
+                child: const Text('🚺',
+                    style: TextStyle(fontSize: 22)),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('NEED AN AUTO?',
+                        style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10,
+                            letterSpacing: 1.8,
+                            color: AppColors.red,
+                            fontWeight: FontWeight.w700)),
+                    SizedBox(height: 4),
+                    Text(
+                        'One tap and every auto partner on campus is '
+                        'alerted at the same time.',
+                        style: TextStyle(
+                            color: Color(0xFF9E9E9E),
+                            fontSize: 11.5,
+                            height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: _autoBusy ? null : _callAuto,
+              icon: _autoBusy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.notifications_active_rounded, size: 18),
+              label: Text(_autoBusy ? 'ALERTING…' : 'CALL AUTO',
+                  style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.red,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(13)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _callAuto() async {
+    setState(() => _autoBusy = true);
+    final res = await context.read<AppStore>().rideAutoCall();
+    if (!mounted) return;
+    setState(() => _autoBusy = false);
+    showCunnectToast(context,
+        res['ok'] == true ? '${res['message']}' : '${res['error']}');
   }
 
   Future<void> _manageContacts() async {

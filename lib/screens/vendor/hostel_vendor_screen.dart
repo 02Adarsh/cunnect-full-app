@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../services/app_store.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/common.dart';
 
 /// ⭐ Hostel vendor portal: pack orders list — order no, orderer (auto
 /// login) name+mobile, recipient name+mobile, address, UTR, status.
@@ -24,13 +25,13 @@ class _HostelVendorScreenState extends State<HostelVendorScreen> {
   Color _statusColor(String s) {
     switch (s) {
       case 'accepted':
-        return const Color(0xFF38BDF8);
+        return const Color(0xFFC9C9C9);
       case 'delivered':
-        return const Color(0xFF7ED98B);
+        return const Color(0xFFF5F5F5);
       case 'cancelled':
         return const Color(0xFFF10B1D);
       default:
-        return const Color(0xFFFFD34D);
+        return const Color(0xFFF5F5F5);
     }
   }
 
@@ -93,7 +94,7 @@ class _HostelVendorScreenState extends State<HostelVendorScreen> {
                 style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFFFFD34D))),
+                    color: Color(0xFFF5F5F5))),
             const Spacer(),
             Text('${o['created_at']}',
                 style:
@@ -152,15 +153,13 @@ class _HostelVendorScreenState extends State<HostelVendorScreen> {
             ),
             const Spacer(),
             if (status == 'pending')
-              _btn('ACCEPT', const Color(0xFF16A34A), () async {
+              _btn('ACCEPT', const Color(0xFFF5F5F5), () async {
                 await store.vendorHostelStatus(o['id'] as int, 'accepted');
                 await store.loadVendorHostelOrders();
               }),
             if (status == 'accepted')
-              _btn('DELIVERED', const Color(0xFF38BDF8), () async {
-                await store.vendorHostelStatus(o['id'] as int, 'delivered');
-                await store.loadVendorHostelOrders();
-              }),
+              _btn('DELIVERED', const Color(0xFFC9C9C9),
+                  () => _deliverWithOtp(context, o)),
             if (status == 'pending' || status == 'accepted')
               _btn('CANCEL', const Color(0xFFF10B1D), () async {
                 await store.vendorHostelStatus(o['id'] as int, 'cancelled');
@@ -170,6 +169,139 @@ class _HostelVendorScreenState extends State<HostelVendorScreen> {
         ],
       ),
     );
+  }
+
+  /// ⭐ v80: an order is only delivered once the OTP the student reads
+  /// out at the door has been typed in and verified.
+  Future<void> _deliverWithOtp(
+      BuildContext context, Map<String, dynamic> o) async {
+    final ctl = TextEditingController();
+    var busy = false;
+    final ok = await showModalBottomSheet<bool>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (ctx) => StatefulBuilder(builder: (ctx, setLocal) {
+            return Padding(
+              padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 22),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF0E0E0E),
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(22)),
+                  border: Border(top: BorderSide(color: Color(0x33FFFFFF))),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                          width: 38,
+                          height: 4,
+                          decoration: BoxDecoration(
+                              color: const Color(0xFF3A3A3A),
+                              borderRadius: BorderRadius.circular(2))),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Enter the delivery OTP',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 7),
+                    Text(
+                        'Ask ${o['recipient_name'] ?? 'the student'} for the '
+                        '4-digit OTP on their screen and type it here. The '
+                        'order is marked delivered as soon as it matches.',
+                        style: const TextStyle(
+                            color: Color(0xFF9E9E9E),
+                            fontSize: 12.5,
+                            height: 1.45)),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: ctl,
+                      keyboardType: TextInputType.number,
+                      maxLength: 4,
+                      textAlign: TextAlign.center,
+                      autofocus: true,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          letterSpacing: 10,
+                          fontWeight: FontWeight.w800),
+                      decoration: InputDecoration(
+                        counterText: '',
+                        hintText: '----',
+                        hintStyle:
+                            const TextStyle(color: Color(0xFF4A4A4A)),
+                        filled: true,
+                        fillColor: const Color(0xFF151515),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(11),
+                          borderSide:
+                              const BorderSide(color: Color(0xFF303030)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(11),
+                          borderSide:
+                              const BorderSide(color: AppColors.red),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: busy
+                            ? null
+                            : () async {
+                                setLocal(() => busy = true);
+                                final err = await context
+                                    .read<AppStore>()
+                                    .hostelVerifyOtp(
+                                        o['id'] as int, ctl.text);
+                                if (!ctx.mounted) return;
+                                setLocal(() => busy = false);
+                                if (err != null) {
+                                  showCunnectToast(ctx, err, error: true);
+                                  return;
+                                }
+                                Navigator.of(ctx).pop(true);
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.red,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: busy
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    color: Colors.white, strokeWidth: 2))
+                            : const Text('VERIFY AND DELIVER',
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ) ??
+        false;
+    ctl.dispose();
+    if (ok && context.mounted) {
+      showCunnectToast(context, 'Order marked delivered');
+    }
   }
 
   Widget _btn(String label, Color color, VoidCallback onTap) => InkWell(

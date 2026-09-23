@@ -15,7 +15,8 @@ import '../../services/open_url_stub.dart'
     if (dart.library.html) '../../services/open_url_web.dart'
     if (dart.library.io) '../../services/open_url_mobile.dart';
 import '../../theme/app_colors.dart';
-import '../../widgets/common.dart' show showCunnectToast;
+import '../../widgets/common.dart'
+    show showCunnectToast, cunnectInputDecoration;
 import '../../widgets/ride_ui.dart';
 import 'ride_history_screen.dart';
 
@@ -39,12 +40,21 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
   Timer? _poll;
   Timer? _gps;
   final _otp = TextEditingController();
+  // ⭐ v79: with more than one ride on the go each one needs its own OTP
+  // field, so the code typed for ride A never leaks into ride B.
+  final Map<String, TextEditingController> _otpFor = {};
+
+  TextEditingController _otpOf(String code) =>
+      _otpFor.putIfAbsent(code, () => TextEditingController());
   bool _starting = false;
 
   // profile form
   final _vehicleNo = TextEditingController();
   final _vehicleModel = TextEditingController();
   bool _online = false;
+  // ⭐ v79: "I drive an auto" — auto partners receive the one-tap calls
+  // from the student Ride screen (no fare, no payment, no OTP).
+  bool _isAuto = false;
   final Map<String, TextEditingController> _base = {};
   final Map<String, TextEditingController> _perKm = {};
   final Map<String, bool> _active = {};
@@ -54,6 +64,11 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
   // ⭐ v75: the rider's own UPI id — the payment QR is built from it
   final _upi = TextEditingController();
   bool _upiSaving = false;
+  // ⭐ v77: garage — every car with its number plate
+  final _carName = TextEditingController();
+  final _carPlate = TextEditingController();
+  String _carType = 'mini';
+  bool _carSaving = false;
 
   StreamSubscription<RideEvent>? _events;
 
@@ -74,6 +89,10 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
     // ⭐ v74: pushes refresh the console instantly and raise a popup.
     _events = RideEvents.stream.listen((ev) {
       if (!mounted) return;
+      // ⭐ v77: never paint a STUDENT event inside the partner portal
+      // (the payment confirmation prompt and the OTP belong to the
+      // student's phone, not to this screen).
+      if (!RideEvents.belongsHere(ev)) return;
       context.read<AppStore>().loadRideConsole();
       if (ev.kind != 'new_request' && ev.kind != 'accepted') {
         RideEvents.show(context, ev);
@@ -102,6 +121,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       _vehicleNo.text = '${p['vehicle_number'] ?? ''}';
       _vehicleModel.text = '${p['vehicle_model'] ?? ''}';
       _online = p['is_online'] == true;
+      _isAuto = p['is_auto'] == true;
     }
     for (final v in store.rideVehicles) {
       final m = Map<String, dynamic>.from(v as Map);
@@ -175,7 +195,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _line(const Color(0xFF98E6B0), '${r['pickup_text']}'),
+            _line(const Color(0xFFF5F5F5), '${r['pickup_text']}'),
             const SizedBox(height: 7),
             _line(AppColors.red, '${r['drop_text']}'),
             const SizedBox(height: 12),
@@ -218,17 +238,19 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
   }
 
   /// ⭐ Share GPS while the ride is live (and stop when it is not).
+  /// ⭐ v79: with several rides running at once the partner's position
+  /// is pushed to EVERY live ride, not just the first one.
   Future<void> _syncGps() async {
     final store = context.read<AppStore>();
-    final ride = store.rideVendorActive.isNotEmpty
-        ? Map<String, dynamic>.from(store.rideVendorActive.first as Map)
-        : null;
-    final code = ride == null ? '' : '${ride['ride_code']}';
-    final status = ride == null ? '' : '${ride['status']}';
-    final shouldShare =
-        code.isNotEmpty && ['paid', 'arrived', 'ongoing'].contains(status);
+    final codes = store.rideVendorActive
+        .whereType<Map>()
+        .map((r) => Map<String, dynamic>.from(r))
+        .where((r) => ['paid', 'arrived', 'ongoing'].contains('${r['status']}'))
+        .map((r) => '${r['ride_code']}')
+        .where((c) => c.isNotEmpty)
+        .toList();
 
-    if (!shouldShare) {
+    if (codes.isEmpty) {
       _gps?.cancel();
       _gps = null;
       if (_gpsNote.isNotEmpty && mounted) {
@@ -236,10 +258,11 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       }
       return;
     }
-    if (_gps != null && _gpsNote == code) return; // already running
+    final key = codes.join(',');
+    if (_gps != null && _gpsNote == key) return; // already running
 
     _gps?.cancel();
-    _gpsNote = code;
+    _gpsNote = key;
     final ok = await _ensureLocationPermission();
     if (!ok) {
       if (mounted) {
@@ -248,9 +271,14 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       }
       return;
     }
-    await _sendLocation(code);
-    _gps = Timer.periodic(
-        const Duration(seconds: 10), (_) => _sendLocation(code));
+    for (final code in codes) {
+      await _sendLocation(code);
+    }
+    _gps = Timer.periodic(const Duration(seconds: 10), (_) {
+      for (final code in codes) {
+        _sendLocation(code);
+      }
+    });
   }
 
   Future<bool> _ensureLocationPermission() async {
@@ -288,6 +316,9 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
     _poll?.cancel();
     _gps?.cancel();
     _otp.dispose();
+    for (final c in _otpFor.values) {
+      c.dispose();
+    }
     _vehicleNo.dispose();
     _vehicleModel.dispose();
     for (final c in _base.values) {
@@ -297,6 +328,167 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       c.dispose();
     }
     super.dispose();
+  }
+
+  /// ⭐ v77: the partner's garage — every car with its number plate.
+  Widget _garageCard(AppStore store) {
+    final cars = store.rideGarage;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111111),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF262626)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (cars.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 10),
+              child: Text('No vehicle saved yet — add your first one below.',
+                  style:
+                      TextStyle(color: Color(0xFF7A7A7A), fontSize: 11.5)),
+            ),
+          for (final c in cars)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 9),
+              child: Row(children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E1E1E),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text('${(c as Map)['vehicle_icon'] ?? '🚗'}',
+                      style: const TextStyle(fontSize: 18)),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                          '${c['name'] ?? ''}'.trim().isEmpty
+                              ? '${c['vehicle_label'] ?? ''}'
+                              : '${c['name']}',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 2),
+                      Text('${c['vehicle_label'] ?? ''} · ${c['plate'] ?? ''}',
+                          style: const TextStyle(
+                              color: Color(0xFF8A8A8A), fontSize: 11)),
+                    ],
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () async {
+                    final id = c['id'] is int
+                        ? c['id'] as int
+                        : int.tryParse('${c['id']}');
+                    if (id == null) return;
+                    final err =
+                        await context.read<AppStore>().deleteRideVehicle(id);
+                    if (!mounted) return;
+                    showCunnectToast(context, err ?? 'Vehicle removed');
+                  },
+                  child: const Icon(Icons.delete_outline_rounded,
+                      size: 18, color: Color(0xFF8A8A8A)),
+                ),
+              ]),
+            ),
+          const Divider(color: Color(0xFF232323), height: 18),
+          Row(
+            children: [
+              for (final t in const [
+                ('mini', 'Mini', '🚗'),
+                ('sedan', 'Sedan', '🚙'),
+                ('suv', 'SUV', '🚐'),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: GestureDetector(
+                    onTap: () => setState(() => _carType = t.$1),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 11, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: _carType == t.$1
+                            ? AppColors.red
+                            : Colors.transparent,
+                        border: Border.all(
+                            color: _carType == t.$1
+                                ? AppColors.red
+                                : const Color(0xFF2E2E2E)),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text('${t.$3} ${t.$2}',
+                          style: TextStyle(
+                              color: _carType == t.$1
+                                  ? Colors.white
+                                  : const Color(0xFF9E9E9E),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _field(_carName, 'Car name (e.g. Swift Dzire)'),
+          const SizedBox(height: 8),
+          _field(_carPlate, 'Number plate (e.g. UP32AB1234)'),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 44,
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: _carSaving ? null : _addVehicle,
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFF3A3A3A)),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              child: _carSaving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Text('ADD VEHICLE',
+                      style: TextStyle(
+                          fontSize: 12.5, fontWeight: FontWeight.w800)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// ⭐ v77: save a car in the garage.
+  Future<void> _addVehicle() async {
+    final name = _carName.text.trim();
+    final plate = _carPlate.text.trim().toUpperCase();
+    if (name.isEmpty || plate.isEmpty) {
+      showCunnectToast(context, 'Car name and number plate are both needed');
+      return;
+    }
+    setState(() => _carSaving = true);
+    final err = await context
+        .read<AppStore>()
+        .addRideVehicle(_carType, name, plate);
+    if (!mounted) return;
+    setState(() => _carSaving = false);
+    if (err == null) {
+      _carName.clear();
+      _carPlate.clear();
+    }
+    showCunnectToast(context, err ?? 'Vehicle added');
   }
 
   /// ⭐ v75: save the rider's UPI id (the payment QR is built from it).
@@ -328,6 +520,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
           vehicleNumber: _vehicleNo.text,
           vehicleModel: _vehicleModel.text,
           isOnline: _online,
+          isAuto: _isAuto,
           rates: rates,
         );
     if (!mounted) return;
@@ -339,6 +532,29 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
   Future<void> _act(String action, String code) async {
     // ⭐ v75: accepting / rejecting stops the ring at once.
     RingService.stop();
+    // ⭐ v77: accepting means choosing the car for this ride first.
+    if (action == 'accept') {
+      await _pickVehicleThenAccept(code);
+      return;
+    }
+    // ⭐ v78: ending a 50-50 ride parks it until the balance is paid —
+    // tell the partner instead of pretending it is done.
+    if (action == 'complete') {
+      final res =
+          await context.read<AppStore>().rideVendorComplete(code);
+      if (!mounted) return;
+      if (res['ok'] != true) {
+        showCunnectToast(context, '${res['error']}');
+        return;
+      }
+      showCunnectToast(
+          context,
+          res['awaiting'] == true
+              ? 'Waiting for the student to pay the balance'
+              : 'Ride completed');
+      _syncGps();
+      return;
+    }
     final store = context.read<AppStore>();
     final err = await store.rideVendorAction(action, code);
     if (!mounted) return;
@@ -352,9 +568,257 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
     _syncGps();
   }
 
+  /// ⭐ v77: which car is the partner driving for THIS ride? Every saved
+  /// vehicle (all categories) plus a one-off that is never saved.
+  Future<void> _pickVehicleThenAccept(String code) async {
+    final store = context.read<AppStore>();
+    await store.loadRideVendorProfile();
+    if (!mounted) return;
+    final garage = context.read<AppStore>().rideGarage;
+    int? picked;
+    var other = garage.isEmpty;
+    var saving = false;
+    final name = TextEditingController();
+    final plate = TextEditingController();
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setLocal) {
+        return Padding(
+          padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.86),
+            decoration: const BoxDecoration(
+              color: Color(0xFF0B0B0B),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+              border: Border(top: BorderSide(color: Color(0x33FFFFFF))),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: const Color(0xFF3A3A3A),
+                        borderRadius: BorderRadius.circular(2))),
+                const SizedBox(height: 16),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(children: [
+                    Expanded(
+                      child: Text('Which car are you driving?',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 19,
+                              fontWeight: FontWeight.w800)),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 4),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                      'Pick one of your vehicles, or add one just for this '
+                      'ride — that one is not saved in your garage.',
+                      style: TextStyle(
+                          color: Color(0xFF8A8A8A),
+                          fontSize: 11.5,
+                          height: 1.45)),
+                ),
+                const SizedBox(height: 14),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    children: [
+                      for (final v in garage)
+                        _vehicleOption(
+                          icon: '${(v as Map)['vehicle_icon'] ?? '🚗'}',
+                          label: '${v['vehicle_label'] ?? ''}',
+                          title: '${v['name'] ?? ''}',
+                          plate: '${v['plate'] ?? ''}',
+                          on: !other && picked == v['id'],
+                          onTap: () => setLocal(() {
+                            picked = v['id'] is int
+                                ? v['id'] as int
+                                : int.tryParse('${v['id']}');
+                            other = false;
+                          }),
+                        ),
+                      _vehicleOption(
+                        icon: '＋',
+                        label: 'One-off',
+                        title: 'Use another vehicle',
+                        plate: 'only for this ride',
+                        on: other,
+                        onTap: () => setLocal(() {
+                          other = true;
+                          picked = null;
+                        }),
+                      ),
+                      if (other) ...[
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: name,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 13),
+                          decoration: cunnectInputDecoration(
+                              placeholder: 'Car name (e.g. Swift Dzire)'),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: plate,
+                          textCapitalization: TextCapitalization.characters,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 13),
+                          decoration: cunnectInputDecoration(
+                              placeholder: 'Number plate (e.g. UP32AB1234)'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+                  child: SizedBox(
+                    height: 50,
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              if (other &&
+                                  name.text.trim().isEmpty &&
+                                  plate.text.trim().isEmpty) {
+                                showCunnectToast(
+                                    context, 'Enter the car and its plate');
+                                return;
+                              }
+                              if (!other && picked == null) {
+                                showCunnectToast(
+                                    context, 'Choose a vehicle first');
+                                return;
+                              }
+                              setLocal(() => saving = true);
+                              final err = await context
+                                  .read<AppStore>()
+                                  .rideVendorAccept(
+                                    code,
+                                    vehicleId: other ? null : picked,
+                                    vehicleName:
+                                        other ? name.text.trim() : null,
+                                    vehiclePlate: other
+                                        ? plate.text.trim().toUpperCase()
+                                        : null,
+                                  );
+                              if (!mounted) return;
+                              setLocal(() => saving = false);
+                              Navigator.of(ctx).pop();
+                              showCunnectToast(context,
+                                  err ?? 'Ride accepted — the student pays now');
+                              if (err == null) {
+                                context.read<AppStore>().loadRideConsole();
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.red,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(13)),
+                      ),
+                      child: saving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  color: Colors.white, strokeWidth: 2))
+                          : const Text('ACCEPT RIDE',
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.1)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _vehicleOption({
+    required String icon,
+    required String label,
+    required String title,
+    required String plate,
+    required bool on,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+          decoration: BoxDecoration(
+            color: on ? const Color(0x1AF10B1D) : const Color(0xFF141414),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(
+                color: on ? AppColors.red : const Color(0xFF262626)),
+          ),
+          child: Row(children: [
+            Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E1E),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Text(icon, style: const TextStyle(fontSize: 19)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title.isEmpty ? label : title,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text(plate.isEmpty ? label : '$label · $plate',
+                      style: const TextStyle(
+                          color: Color(0xFF8A8A8A), fontSize: 11)),
+                ],
+              ),
+            ),
+            Icon(
+              on
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_off_rounded,
+              size: 19,
+              color: on ? AppColors.red : const Color(0xFF6A6A6A),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
   Future<void> _startRide(String code) async {
     if (_starting) return;
-    final otp = _otp.text.trim();
+    final otp = _otpOf(code).text.trim();
     if (otp.isEmpty) {
       showCunnectToast(context, 'Enter the OTP the student reads out');
       return;
@@ -367,7 +831,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       showCunnectToast(context, err);
       return;
     }
-    _otp.clear();
+    _otpOf(code).clear();
     showCunnectToast(context, 'Ride started — have a safe trip');
   }
 
@@ -568,13 +1032,13 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
               const Spacer(),
               Text('₹${((r['fare'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
                   style: const TextStyle(
-                      color: Color(0xFF98E6B0),
+                      color: Color(0xFFF5F5F5),
                       fontSize: 18,
                       fontWeight: FontWeight.w800)),
             ],
           ),
           const SizedBox(height: 12),
-          _line(const Color(0xFF98E6B0), '${r['pickup_text']}'),
+          _line(const Color(0xFFF5F5F5), '${r['pickup_text']}'),
           const SizedBox(height: 7),
           _line(AppColors.red, '${r['drop_text']}'),
           const SizedBox(height: 11),
@@ -604,7 +1068,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                       fontSize: 11,
                       color: hidden
                           ? const Color(0xFF6A6A6A)
-                          : const Color(0xFF98E6B0),
+                          : const Color(0xFFF5F5F5),
                       fontWeight: FontWeight.w700)),
             ],
           ),
@@ -704,12 +1168,15 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
 
   // --------------------------- ACTIVE -----------------------------
 
+  /// ⭐ v79: a ride partner can ACCEPT, RUN and CLOSE several rides at
+  /// the same time. Every active ride gets its own card here — its own
+  /// map, its own payment panel and its own buttons.
   Widget _activeTab(AppStore store) {
-    final active = store.rideVendorActive;
-    final ride = active.isNotEmpty
-        ? Map<String, dynamic>.from(active.first as Map)
-        : null;
-    if (ride == null) {
+    final active = store.rideVendorActive
+        .whereType<Map>()
+        .map((r) => Map<String, dynamic>.from(r))
+        .toList();
+    if (active.isEmpty) {
       return RefreshIndicator(
         color: AppColors.red,
         onRefresh: () => store.loadRideConsole(),
@@ -732,109 +1199,207 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
         ),
       );
     }
-    final status = '${ride['status']}';
-    final when = DateTime.tryParse('${ride['scheduled_at'] ?? ''}');
     return RefreshIndicator(
       color: AppColors.red,
       onRefresh: () => store.loadRideConsole(),
       child: ListView(
         padding: const EdgeInsets.fromLTRB(14, 16, 14, 26),
         children: [
-          Container(
-            padding: const EdgeInsets.all(15),
-            decoration: BoxDecoration(
-              color: const Color(0xFF111111),
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: AppColors.red.withOpacity(.42)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(_statusLine(status),
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800)),
-                const SizedBox(height: 12),
-                _line(const Color(0xFF98E6B0), '${ride['pickup_text']}'),
-                const SizedBox(height: 7),
-                _line(AppColors.red, '${ride['drop_text']}'),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _chip(Icons.schedule_rounded,
-                        when == null ? 'Leave now' : _fmtWhen(when)),
-                    _chip(Icons.directions_car_rounded,
-                        '${ride['vehicle_label']}'),
-                    _chip(Icons.straighten_rounded,
-                        '${ride['distance_km']} km'),
-                    if ('${ride['notes'] ?? ''}'.isNotEmpty)
-                      _chip(Icons.notes_rounded, '${ride['notes']}'),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                          '${ride['student_name']} · ${ride['student_phone']}',
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 12.5)),
-                    ),
-                    Text(
-                        '₹${((ride['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
-                        style: const TextStyle(
-                            color: Color(0xFF98E6B0),
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800)),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          // ⭐ v74: exactly what the student paid — full or the first
-          // half — with the transaction id and whatever is still due.
-          _paymentPanel(ride),
-          const SizedBox(height: 14),
-          // ⭐ v73: contact number — visible only AFTER the payment
-          _callRow(ride),
-          const SizedBox(height: 14),
-          // ⭐ v73: the map + directions unlock after the payment is
-          // verified (pickup first, drop only once the OTP is in).
-          _mapCard(ride),
-          const SizedBox(height: 14),
-          if (status == 'accepted') _waitForPayment(),
-          // ⭐ v75: nothing is automatic — the rider confirms he received
-          // the money before the trip can move on.
-          if (ride['can_confirm'] == true) _confirmCard(ride),
-          if (status == 'paid' && ride['can_confirm'] != true)
-            _bigButton("I'M ON LOCATION", 'arrived', ride),
-          if (status == 'arrived') _otpBox(ride),
-          if (status == 'ongoing') ...[
-            const SizedBox(height: 4),
-            _bigButton('COMPLETE RIDE', 'complete', ride),
-          ],
-          if (status == 'paid' || status == 'arrived' || status == 'ongoing')
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
+          if (active.length > 1)
+            Container(
+              margin: const EdgeInsets.only(bottom: 14),
+              padding: const EdgeInsets.fromLTRB(13, 11, 13, 11),
+              decoration: BoxDecoration(
+                color: const Color(0xFF111111),
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(color: AppColors.red.withOpacity(.42)),
+              ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.gps_fixed_rounded,
-                      size: 13, color: Color(0xFF98E6B0)),
-                  const SizedBox(width: 7),
-                  Text(
-                      _gps != null
-                          ? 'Sharing your live location with the student'
-                          : 'Location not shared',
+                  const Icon(Icons.layers_rounded,
+                      size: 15, color: AppColors.red),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '${active.length} rides running together — accept '
+                      'and close as many as you can handle.',
                       style: const TextStyle(
-                          color: Color(0xFF7A7A7A), fontSize: 11)),
+                          color: Color(0xFFF5F5F5),
+                          fontSize: 11.5,
+                          height: 1.45),
+                    ),
+                  ),
                 ],
               ),
             ),
+          for (var i = 0; i < active.length; i++) ...[
+            _activeRideCard(active[i], i + 1),
+            const SizedBox(height: 18),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// One live ride — everything it needs is inside its own card, so two
+  /// or three of them can sit on top of each other without confusion.
+  Widget _activeRideCard(Map<String, dynamic> ride, int index) {
+    final status = '${ride['status']}';
+    final when = DateTime.tryParse('${ride['scheduled_at'] ?? ''}');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.red.withOpacity(.12),
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(color: AppColors.red.withOpacity(.38)),
+              ),
+              child: Text('RIDE $index · ${ride['ride_code']}',
+                  style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 9.5,
+                      letterSpacing: 1.1,
+                      color: AppColors.red,
+                      fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 9),
+        Container(
+          padding: const EdgeInsets.all(15),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111111),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: AppColors.red.withOpacity(.42)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_statusLine(status),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800)),
+              const SizedBox(height: 12),
+              _line(const Color(0xFFF5F5F5), '${ride['pickup_text']}'),
+              const SizedBox(height: 7),
+              _line(AppColors.red, '${ride['drop_text']}'),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _chip(Icons.schedule_rounded,
+                      when == null ? 'Leave now' : _fmtWhen(when)),
+                  _chip(Icons.directions_car_rounded,
+                      '${ride['vehicle_label']}'),
+                  _chip(Icons.straighten_rounded, '${ride['distance_km']} km'),
+                  if ('${ride['notes'] ?? ''}'.isNotEmpty)
+                    _chip(Icons.notes_rounded, '${ride['notes']}'),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                        '${ride['student_name']} · ${ride['student_phone']}',
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 12.5)),
+                  ),
+                  Text(
+                      '₹${((ride['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                      style: const TextStyle(
+                          color: Color(0xFFF5F5F5),
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800)),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        // ⭐ v74: exactly what the student paid — full or the first
+        // half — with the transaction id and whatever is still due.
+        _paymentPanel(ride),
+        const SizedBox(height: 14),
+        // ⭐ v73: contact number — visible only AFTER the payment
+        _callRow(ride),
+        const SizedBox(height: 14),
+        // ⭐ v73: the map + directions unlock after the payment is
+        // verified (pickup first, drop only once the OTP is in).
+        _mapCard(ride),
+        const SizedBox(height: 14),
+        if (status == 'accepted') _waitForPayment(),
+        // ⭐ v75: nothing is automatic — the rider confirms he received
+        // the money before the trip can move on.
+        if (ride['can_confirm'] == true) _confirmCard(ride),
+        if (status == 'paid' && ride['can_confirm'] != true)
+          _bigButton("I'M ON LOCATION", 'arrived', ride),
+        if (status == 'arrived') _otpBox(ride),
+        if (status == 'ongoing' && ride['awaiting_balance'] != true) ...[
+          const SizedBox(height: 4),
+          _bigButton('COMPLETE RIDE', 'complete', ride),
+        ],
+        if (ride['awaiting_balance'] == true) ...[
+          const SizedBox(height: 4),
+          _waitingBalance(ride),
+        ],
+        if (status == 'paid' || status == 'arrived' || status == 'ongoing')
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.gps_fixed_rounded,
+                    size: 13, color: Color(0xFFF5F5F5)),
+                const SizedBox(width: 7),
+                Text(
+                    _gps != null
+                        ? 'Sharing your live location with the student'
+                        : 'Location not shared',
+                    style: const TextStyle(
+                        color: Color(0xFF7A7A7A), fontSize: 11)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// ⭐ v78: a 50-50 ride cannot be closed while the second half is
+  /// unpaid — the ride partner sees exactly where it stands.
+  Widget _waitingBalance(Map<String, dynamic> ride) {
+    final due = ((ride['balance_due'] as num?)?.toDouble() ?? 0);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111111),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: AppColors.red.withOpacity(.42)),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 15,
+            height: 15,
+            child: CircularProgressIndicator(
+                color: AppColors.red, strokeWidth: 2),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Text(
+              'Waiting for the student to pay ₹${due.toStringAsFixed(0)}. '
+              'The ride closes on its own the moment it lands.',
+              style: const TextStyle(
+                  color: Color(0xFFF5F5F5), fontSize: 11.5, height: 1.45),
+            ),
+          ),
         ],
       ),
     );
@@ -882,6 +1447,15 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
               ),
             ],
           ),
+          if (ride['awaiting_balance'] == true) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'Balance pending — the ride closes as soon as the student '
+              'pays, and their transaction ID shows up below.',
+              style: TextStyle(
+                  color: Color(0xFF9E9E9E), fontSize: 10.5, height: 1.45),
+            ),
+          ],
           const SizedBox(height: 12),
           Row(
             children: [
@@ -959,7 +1533,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                         const Icon(Icons.receipt_long_rounded,
                             size: 13, color: Color(0xFF7A7A7A)),
                         const SizedBox(width: 8),
-                        const Text('Txn 2 · ',
+                        const Text('Balance txn · ',
                             style: TextStyle(
                                 color: Color(0xFF7A7A7A), fontSize: 11)),
                         Expanded(
@@ -1051,6 +1625,14 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
   }
 
   /// ⭐ v73: the number to call — shown only after the payment is in.
+  /// ⭐ v77: 9876543210 -> 98XXXXX210 (never paint the real digits)
+  String _maskOf(String p) {
+    final t = p.trim();
+    if (t.length < 6) return t;
+    return '${t.substring(0, 2)}${'X' * (t.length - 5)}'
+        '${t.substring(t.length - 3)}';
+  }
+
   Widget _callRow(Map<String, dynamic> ride) {
     final hidden = ride['phone_hidden'] == true;
     final phone = '${ride['contact_phone'] ?? ride['student_phone'] ?? ''}';
@@ -1073,14 +1655,18 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       );
     }
     final other = ride['booking_for_other'] == true;
+    // ⭐ v77: the rider may CALL the student, but the number itself is
+    // never painted — only a masked version is shown.
+    final masked = '${ride['student_phone_masked'] ?? ''}';
+    final shown = masked.isNotEmpty ? masked : _maskOf(phone);
     return GestureDetector(
       onTap: () => openExternalUrl('tel:$phone'),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFF12200F),
+          color: const Color(0xFF141414),
           borderRadius: BorderRadius.circular(13),
-          border: Border.all(color: const Color(0x4D98E6B0)),
+          border: Border.all(color: const Color(0x33FFFFFF)),
         ),
         child: Row(children: [
           Container(
@@ -1103,11 +1689,15 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                     style: const TextStyle(
                         color: Color(0xFF9E9E9E), fontSize: 10.5)),
                 const SizedBox(height: 2),
-                Text(phone,
+                Text(shown,
                     style: const TextStyle(
                         color: Colors.white,
                         fontSize: 15,
-                        fontWeight: FontWeight.w800)),
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2)),
+                const SizedBox(height: 2),
+                const Text('tap to call — the number is never shown',
+                    style: TextStyle(color: Color(0xFF6A6A6A), fontSize: 9.5)),
                 if (other && '${ride['other_name'] ?? ''}'.isNotEmpty)
                   Text('${ride['other_name']}',
                       style: const TextStyle(
@@ -1200,7 +1790,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                       width: 32,
                       height: 32,
                       child: const Icon(Icons.gps_fixed_rounded,
-                          color: Color(0xFF98E6B0), size: 22),
+                          color: Color(0xFFF5F5F5), size: 22),
                     ),
                   Marker(
                     point: dest,
@@ -1210,7 +1800,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                         toPickup
                             ? Icons.trip_origin_rounded
                             : Icons.location_on_rounded,
-                        color: toPickup ? const Color(0xFF98E6B0) : AppColors.red,
+                        color: toPickup ? const Color(0xFFF5F5F5) : AppColors.red,
                         size: 28),
                   ),
                 ]),
@@ -1397,7 +1987,8 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF111111),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: const Color(0xFFFFD34D).withOpacity(.5)),
+        // ⭐ v79: red again — the ride section is red, black and white.
+        border: Border.all(color: AppColors.red.withOpacity(.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1407,7 +1998,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                   fontFamily: 'monospace',
                   fontSize: 10,
                   letterSpacing: 2,
-                  color: Color(0xFFFFD34D),
+                  color: AppColors.red,
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           const Text(
@@ -1417,7 +2008,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                   TextStyle(color: Color(0xFF9E9E9E), fontSize: 12, height: 1.5)),
           const SizedBox(height: 12),
           TextField(
-            controller: _otp,
+            controller: _otpOf('${ride['ride_code']}'),
             keyboardType: TextInputType.number,
             maxLength: 4,
             textAlign: TextAlign.center,
@@ -1534,7 +2125,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
           ),
           Text('₹${((r['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
               style: const TextStyle(
-                  color: Color(0xFF98E6B0),
+                  color: Color(0xFFF5F5F5),
                   fontSize: 13,
                   fontWeight: FontWeight.w800)),
         ],
@@ -1557,20 +2148,18 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
         Container(
           padding: const EdgeInsets.fromLTRB(15, 14, 15, 14),
           decoration: BoxDecoration(
-            color: _online ? const Color(0xFF12200F) : const Color(0xFF111111),
+            color: _online ? const Color(0xFF1E0A0C) : const Color(0xFF111111),
             borderRadius: BorderRadius.circular(15),
             border: Border.all(
                 color: _online
-                    ? const Color(0xFF98E6B0).withOpacity(.5)
+                    ? AppColors.red.withOpacity(.5)
                     : const Color(0xFF262626)),
           ),
           child: Row(
             children: [
               Icon(Icons.circle,
                   size: 12,
-                  color: _online
-                      ? const Color(0xFF98E6B0)
-                      : const Color(0xFF5A5A5A)),
+                  color: _online ? AppColors.red : const Color(0xFF5A5A5A)),
               const SizedBox(width: 11),
               Expanded(
                 child: Column(
@@ -1593,8 +2182,66 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
               ),
               Switch(
                 value: _online,
-                activeColor: const Color(0xFF98E6B0),
+                activeColor: const Color(0xFFF5F5F5),
                 onChanged: (v) => setState(() => _online = v),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        // ⭐ v79: auto partners are alerted by the AUTO button on the
+        // student Ride screen — they are not part of the car bookings.
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111111),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(
+                color: _isAuto
+                    ? AppColors.red.withOpacity(.5)
+                    : const Color(0xFF262626)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.red.withOpacity(.12),
+                  borderRadius: BorderRadius.circular(11),
+                  border: Border.all(
+                      color: AppColors.red.withOpacity(
+                          _isAuto ? .45 : .18)),
+                ),
+                child: const Text('🚺',
+                    style: TextStyle(fontSize: 19)),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('I drive an auto',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700)),
+                    SizedBox(height: 2),
+                    Text(
+                        'ON — students can call you to the main gate with '
+                        'one tap. No fare, no payment, no OTP.',
+                        style: TextStyle(
+                            color: Color(0xFF9E9E9E),
+                            fontSize: 11,
+                            height: 1.45)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: _isAuto,
+                activeColor: AppColors.red,
+                onChanged: (v) => setState(() => _isAuto = v),
               ),
             ],
           ),
@@ -1652,6 +2299,19 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
                         letterSpacing: 1.1)),
           ),
         ),
+        // ⭐ v77: MY VEHICLES — every car with its own number plate
+        const SizedBox(height: 24),
+        _sectionLabel('MY VEHICLES'),
+        const SizedBox(height: 6),
+        const Text(
+          'Add every car you drive. While accepting a request you pick the '
+          'one you are taking — the student sees the model first and the '
+          'number plate only after you verify the payment.',
+          style:
+              TextStyle(color: Color(0xFF8A8A8A), fontSize: 11.5, height: 1.5),
+        ),
+        const SizedBox(height: 12),
+        _garageCard(store),
         // ⭐ v75: PAYMENT UPI — the ride QR is generated from this id
         const SizedBox(height: 24),
         _sectionLabel('PAYMENT UPI'),

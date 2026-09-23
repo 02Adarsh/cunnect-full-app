@@ -126,15 +126,15 @@ class StatusChip extends StatelessWidget {
       case OrderStatus.pending:
         return const Color(0x80F10B1D);
       case OrderStatus.accepted:
-        return const Color(0x7A4BA3FF);
+        return const Color(0x7AC9C9C9);
       case OrderStatus.preparing:
-        return const Color(0x80FFAA37);
+        return const Color(0x80F10B1D);
       case OrderStatus.ready:
-        return const Color(0x8038B765);
+        return const Color(0x80F5F5F5);
       case OrderStatus.outForDelivery:
-        return const Color(0x7A4BA3FF);
+        return const Color(0x7AC9C9C9);
       case OrderStatus.completed:
-        return const Color(0x5938B765);
+        return const Color(0x59F5F5F5);
       case OrderStatus.rejected:
       case OrderStatus.cancelled:
         return const Color(0xFF4B4B4B);
@@ -146,14 +146,14 @@ class StatusChip extends StatelessWidget {
       case OrderStatus.pending:
         return const Color(0x1AF10B1D);
       case OrderStatus.accepted:
-        return const Color(0x1A4BA3FF);
+        return const Color(0x1AC9C9C9);
       case OrderStatus.preparing:
-        return const Color(0x1AFFAA37);
+        return const Color(0x1AF10B1D);
       case OrderStatus.ready:
       case OrderStatus.completed:
-        return const Color(0x1A38B765);
+        return const Color(0x1AF5F5F5);
       case OrderStatus.outForDelivery:
-        return const Color(0x1A4BA3FF);
+        return const Color(0x1AC9C9C9);
       case OrderStatus.rejected:
       case OrderStatus.cancelled:
         return Colors.transparent;
@@ -165,14 +165,14 @@ class StatusChip extends StatelessWidget {
       case OrderStatus.pending:
         return const Color(0xFFFF9CA4);
       case OrderStatus.accepted:
-        return const Color(0xFF9ECBFF);
+        return const Color(0xFFC9C9C9);
       case OrderStatus.preparing:
-        return const Color(0xFFFFD394);
+        return const Color(0xFFC9C9C9);
       case OrderStatus.ready:
       case OrderStatus.completed:
-        return const Color(0xFF9BE7B4);
+        return const Color(0xFFF5F5F5);
       case OrderStatus.outForDelivery:
-        return const Color(0xFF9ECBFF);
+        return const Color(0xFFC9C9C9);
       case OrderStatus.rejected:
       case OrderStatus.cancelled:
         return const Color(0xFFAAAAAA);
@@ -197,6 +197,8 @@ class StatusChip extends StatelessWidget {
 }
 
 /// Swiggy-style bottom toast used for coupon / action feedback.
+/// ⭐ v79: the SUCCESS flash message is GREEN again (the owner's own
+/// look) — only the error one is red.
 void showCunnectToast(BuildContext context, String message, {bool error = false}) {
   final messenger = ScaffoldMessenger.of(context);
   messenger.clearSnackBars();
@@ -212,7 +214,10 @@ void showCunnectToast(BuildContext context, String message, {bool error = false}
           ),
           alignment: Alignment.center,
           child: Text(error ? '!' : '✓',
-              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800)),
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800)),
         ),
         const SizedBox(width: 11),
         Expanded(
@@ -232,7 +237,8 @@ void showCunnectToast(BuildContext context, String message, {bool error = false}
     backgroundColor: error ? const Color(0xFF2A1114) : const Color(0xFF112218),
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(13),
-      side: BorderSide(color: error ? const Color(0x94F10B1D) : const Color(0x8C3DB260)),
+      side: BorderSide(
+          color: error ? const Color(0x94F10B1D) : const Color(0x8C3DB260)),
     ),
     elevation: 12,
     duration: const Duration(seconds: 3),
@@ -383,7 +389,7 @@ class VegMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isVeg ? const Color(0xFF0F8A3C) : const Color(0xFFD32F2F);
+    final color = isVeg ? const Color(0xFFF10B1D) : const Color(0xFFD32F2F);
     return Container(
       width: size,
       height: size,

@@ -301,7 +301,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                   icon: Icons.restaurant,
                   label: 'Food',
                   onTap: () {
-                    // ⭐ v60: the Food Court section is admin-controlled.
+                    // ⭐ v60: the CUnnect Food section is admin-controlled.
                     final food =
                         context.read<AppStore>().builtinSections['food'];
                     final active = (food?['is_active'] ?? true) as bool;
@@ -310,8 +310,8 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                       showCunnectToast(
                           context,
                           soon
-                              ? 'Food Court is coming soon on CUnnect.'
-                              : 'CUnnect food is currently unavailable.');
+                              ? 'CUnnect Food is coming soon.'
+                              : 'CUnnect Food is currently unavailable.');
                       return;
                     }
                     Navigator.of(context).push(MaterialPageRoute(

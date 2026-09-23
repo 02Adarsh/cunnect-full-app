@@ -24,7 +24,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
   }
 
   static const Color accent = Color(0xFFE8000D);
-  static const Color online = Color(0xFF31C67A);
+  static const Color online = Color(0xFFF5F5F5);
   static const Color page = Color(0xFF0D0D0D);
   static const Color card = Color(0xFF101010);
 
@@ -375,7 +375,7 @@ class _RoomCard extends StatelessWidget {
                         width: 7,
                         height: 7,
                         decoration: const BoxDecoration(
-                            shape: BoxShape.circle, color: Color(0xFF31C67A)),
+                            shape: BoxShape.circle, color: Color(0xFFF5F5F5)),
                       ),
                       const SizedBox(width: 4),
                       Text('${room.onlineCount} online',

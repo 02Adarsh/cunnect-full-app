@@ -470,7 +470,7 @@ class _CunnectPopupState extends State<_CunnectPopup>
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
                     color: widget.vendor
-                        ? const Color(0xFF2E9D55)
+                        ? const Color(0xFFF10B1D)
                         : const Color(0x66F10B1D),
                     width: 1.2),
                 boxShadow: const [

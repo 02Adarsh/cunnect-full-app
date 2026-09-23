@@ -261,7 +261,7 @@ class _RideLiveMapScreenState extends State<RideLiveMapScreen> {
           point: LatLng(pLat, pLng),
           width: 40,
           height: 40,
-          child: _pin(const Color(0xFF98E6B0), Icons.trip_origin_rounded),
+          child: _pin(const Color(0xFFF5F5F5), Icons.trip_origin_rounded),
         ),
       if (dLat != null && dLng != null)
         Marker(
@@ -295,7 +295,7 @@ class _RideLiveMapScreenState extends State<RideLiveMapScreen> {
           height: 26,
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0xFF3B82F6),
+              color: const Color(0xFFF5F5F5),
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white, width: 2),
             ),
@@ -633,7 +633,7 @@ class _RideLiveMapScreenState extends State<RideLiveMapScreen> {
 
   Widget _routeRow(Map<String, dynamic> ride) => Row(children: [
         const Icon(Icons.trip_origin_rounded,
-            color: Color(0xFF98E6B0), size: 16),
+            color: Color(0xFFF5F5F5), size: 16),
         const SizedBox(width: 9),
         Expanded(
           child: Text((ride['pickup_text'] ?? '').toString(),

@@ -15,7 +15,7 @@ class AppColors {
   static const Color red = Color(0xFFF10B1D);
   static const Color redLogo = Color(0xFFFF1022);
   static const Color redDark = Color(0xFFD90819);
-  static const Color green = Color(0xFF38B765);
+  static const Color green = Color(0xFFF10B1D);
   static const Color white = Color(0xFFF5F5F5);
   static const Color muted = Color(0xFF9E9E9E);
   static const Color mutedAlt = Color(0xFFA4A4A4);
@@ -23,5 +23,5 @@ class AppColors {
   static const Color inputBorder = Color(0xFF343434);
   static const Color inputBg = Color(0xFF151515);
   static const Color footerBg = Color(0xFF171717);
-  static const Color gold = Color(0xFFD4C7A3);
+  static const Color gold = Color(0xFFC9C9C9);
 }

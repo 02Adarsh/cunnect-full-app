@@ -87,13 +87,13 @@ class _OrderCard extends StatelessWidget {
   Color get _statusColor {
     switch (order.status) {
       case PrintOrderStatus.completed:
-        return AppColors.green;
+        return const Color(0xFFF5F5F5);
       case PrintOrderStatus.rejected:
         return AppColors.red;
       case PrintOrderStatus.pending:
-        return const Color(0xFFD9A94E);
+        return const Color(0xFF9E9E9E);
       default:
-        return const Color(0xFF6EA8FE);
+        return const Color(0xFFF5F5F5);
     }
   }
 
@@ -143,6 +143,37 @@ class _OrderCard extends StatelessWidget {
               _chip(order.printSide == 'double' ? 'Double side' : 'Single side'),
             ],
           ),
+          // ⭐ v80: the OTP the student shows at the counter — the print
+          // partner has to type it in before the job can be completed.
+          if (order.deliveryOtp.isNotEmpty && !order.otpVerified) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: const Color(0x1AF10B1D),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0x80F10B1D)),
+              ),
+              child: Column(
+                children: [
+                  const Text('Show this OTP at the counter to collect',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Color(0xFFFFB0B7),
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 5),
+                  Text(order.deliveryOtp,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 25,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 7)),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 9),
           Row(
             children: [

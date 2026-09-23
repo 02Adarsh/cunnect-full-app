@@ -57,6 +57,8 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
 
   // ⭐ v74: live events (accepted / paid / arrived / started / completed)
   StreamSubscription<RideEvent>? _events;
+  // ⭐ v77: the QR is generated on its own — no "SHOW QR" button
+  String _qrFor = '';
   bool _sosBusy = false;
 
   @override
@@ -79,11 +81,15 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
     // any event the user has not seen yet (e.g. tapped while closed).
     _events = RideEvents.stream.listen((ev) {
       if (ev.code.isNotEmpty && ev.code != widget.rideCode) return;
+      // ⭐ v77: the partner's own events (accept prompt, confirm payment)
+      // are none of this screen's business — they stay in his portal.
+      if (!RideEvents.belongsHere(ev)) return;
       _refresh();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) RideEvents.consumePending(context);
     });
+    _autoQr();
   }
 
   @override
@@ -147,6 +153,27 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
       }
       _loading = false;
     });
+    // ⭐ v77: the payment QR appears on its own, like the food checkout
+    _autoQr();
+  }
+
+  /// ⭐ v77: the payment QR is built the moment the payment step opens —
+  /// exactly like the food checkout (no button to press).
+  void _autoQr() {
+    final ride = _ride;
+    if (ride == null) return;
+    final status = '${ride['status']}';
+    num amount = 0;
+    if (status == 'accepted') {
+      amount = (ride['amount_now'] as num?) ?? (ride['fare'] as num?) ?? 0;
+    } else if (ride['awaiting_balance'] == true || status == 'completed') {
+      amount = (ride['balance_due'] as num?) ?? 0;
+    }
+    if (amount <= 0) return;
+    final key = '${status}_${amount.toStringAsFixed(2)}';
+    if (_qrFor == key || _qrLoading) return;
+    _qrFor = key;
+    _loadQr(amount);
   }
 
   Future<void> _loadQr(num amount) async {
@@ -294,6 +321,12 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                     _tripCard(ride),
                     const SizedBox(height: 14),
                     if (status == 'requested') _searchingCard(ride),
+                    // ⭐ v79: the car is shown the moment the rider accepts —
+                    // before the student pays anything.
+                    if (status == 'accepted') ...[
+                      _carCard(ride),
+                      const SizedBox(height: 14),
+                    ],
                     if (status == 'accepted') _paymentCard(ride),
                     if (status == 'paid' ||
                         status == 'arrived' ||
@@ -306,11 +339,11 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                       const SizedBox(height: 14),
                       _otpCard(ride),
                     ],
-                    if (status == 'completed') _completedCard(ride),
-                    if (_paxOf(ride).isNotEmpty) ...[
-                      const SizedBox(height: 14),
-                      _paxCard(ride),
-                    ],
+                    // ⭐ v78: a parked 50-50 ride shows the pay-balance card
+                    // while it is still open.
+                    if (status == 'completed' ||
+                        ride['awaiting_balance'] == true)
+                      _completedCard(ride),
                     if (status != 'completed' &&
                         status != 'cancelled' &&
                         status != 'rejected') ...[
@@ -412,7 +445,7 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                   width: 34,
                   height: 34,
                   child: const Icon(Icons.my_location_rounded,
-                      color: Color(0xFF98E6B0), size: 26),
+                      color: Color(0xFFF5F5F5), size: 26),
                 ),
                 Marker(
                   point: drop,
@@ -581,10 +614,18 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
     // ⭐ v75: nothing is automatic — the rider confirms the payment himself
     // before the trip can move on.
     final waiting = status == 'paid' && ride['payment_confirmed'] != true;
-    final head = waiting ? 'Payment sent — rider confirming ⏳' : m.$1;
+    final awaiting = ride['awaiting_balance'] == true;
+    final balTxt = ((ride['balance_due'] as num?)?.toDouble() ?? 0)
+        .toStringAsFixed(0);
+    final head = waiting
+        ? 'Payment sent — rider confirming ⏳'
+        : (awaiting ? 'Pay the balance to close this ride' : m.$1);
     final sub = waiting
         ? 'Your rider is checking the payment and will start the trip.'
-        : m.$2;
+        : (awaiting
+            ? 'Your rider has ended the trip. Pay the remaining ₹$balTxt and '
+                'the ride is complete.'
+            : m.$2);
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
       decoration: BoxDecoration(
@@ -661,7 +702,7 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          _dot(const Color(0xFF98E6B0), '${ride['pickup_text']}'),
+          _dot(const Color(0xFFF5F5F5), '${ride['pickup_text']}'),
           const Padding(
             padding: EdgeInsets.only(left: 4),
             child: SizedBox(
@@ -830,6 +871,71 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  /// ⭐ v79: which car is coming, shown on ACCEPT — before payment.
+  /// The number plate (and the rider's phone) still wait for the
+  /// payment to be verified.
+  Widget _carCard(Map<String, dynamic> ride) {
+    final name = '${ride['rider_name'] ?? ''}'.trim();
+    final model = '${ride['vehicle_name'] ?? ''}'.trim();
+    final label = '${ride['vehicle_label'] ?? ''}'.trim();
+    final car = [model, label].where((e) => e.isNotEmpty).join(' · ');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(15, 15, 15, 15),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111111),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.red.withOpacity(.42)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.red.withOpacity(.13),
+              border: Border.all(color: AppColors.red.withOpacity(.4)),
+            ),
+            child: Text('${ride['vehicle_icon']}',
+                style: const TextStyle(fontSize: 24)),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('YOUR CAR',
+                    style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 9.5,
+                        letterSpacing: 1.8,
+                        color: AppColors.red,
+                        fontWeight: FontWeight.w700)),
+                const SizedBox(height: 5),
+                Text(car.isEmpty ? 'Car details on the way' : car,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800)),
+                if (name.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(name,
+                      style: const TextStyle(
+                          color: Color(0xFF9E9E9E), fontSize: 11.5)),
+                ],
+                const SizedBox(height: 4),
+                const Text('Number plate appears after the payment',
+                    style:
+                        TextStyle(color: Color(0xFF6A6A6A), fontSize: 10.5)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1106,9 +1212,11 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
 
   Widget _riderCard(Map<String, dynamic> ride, String status) {
     final name = '${ride['rider_name'] ?? ''}';
+    // ⭐ v77: the number and the plate reach the student only after the
+    // rider has verified the payment (the server blanks them out).
     final phone = '${ride['rider_phone'] ?? ''}';
-    final vehicle = '${ride['rider_vehicle'] ?? ''}';
-    final model = '${ride['rider_model'] ?? ''}';
+    final vehicle = '${ride['vehicle_plate'] ?? ''}';
+    final model = '${ride['vehicle_name'] ?? ''}';
     return Container(
       padding: const EdgeInsets.fromLTRB(15, 15, 15, 15),
       decoration: BoxDecoration(
@@ -1150,13 +1258,28 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                         style: const TextStyle(
                             color: Color(0xFF9E9E9E), fontSize: 11.5)),
                     if (vehicle.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A1A1A),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFF333333)),
+                        ),
+                        child: Text(vehicle,
+                            style: const TextStyle(
+                                fontFamily: 'monospace',
+                                color: Color(0xFFF5F5F5),
+                                fontSize: 13,
+                                letterSpacing: 1.4,
+                                fontWeight: FontWeight.w800)),
+                      ),
+                    ] else ...[
                       const SizedBox(height: 3),
-                      Text(vehicle,
-                          style: const TextStyle(
-                              fontFamily: 'monospace',
-                              color: Color(0xFFB7B7BC),
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700)),
+                      const Text('Number plate appears after the payment',
+                          style: TextStyle(
+                              color: Color(0xFF6A6A6A), fontSize: 10.5)),
                     ],
                   ],
                 ),
@@ -1178,7 +1301,7 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                               fontSize: 12.5, fontWeight: FontWeight.w700)),
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: Color(0xFF3A3A3A)),
-                        foregroundColor: const Color(0xFF98E6B0),
+                        foregroundColor: const Color(0xFFF5F5F5),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(11)),
                       ),
@@ -1202,7 +1325,8 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF111111),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFFFD34D).withOpacity(.5)),
+        // ⭐ v79: red again — the ride section is red, black and white.
+        border: Border.all(color: AppColors.red.withOpacity(.5)),
       ),
       child: Column(
         children: [
@@ -1211,7 +1335,7 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                   fontFamily: 'monospace',
                   fontSize: 10,
                   letterSpacing: 2.2,
-                  color: Color(0xFFFFD34D),
+                  color: AppColors.red,
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 12),
           Text(
@@ -1263,8 +1387,8 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                         style: TextStyle(
                             fontSize: 11.5, fontWeight: FontWeight.w800)),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFFFD34D),
-                      side: const BorderSide(color: Color(0xFFFFD34D)),
+                      foregroundColor: AppColors.red,
+                      side: const BorderSide(color: AppColors.red),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(11)),
                     ),
@@ -1285,50 +1409,61 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
         'https://wa.me/?text=${Uri.encodeComponent(text)}');
   }
 
+  /// ⭐ v78: the second half of a 50-50 ride. Until this is paid the ride
+  /// simply does not close — the rider cannot complete it either.
   Widget _completedCard(Map<String, dynamic> ride) {
     final balance = (ride['balance_due'] as num?)?.toDouble() ?? 0;
     if (balance > 0) {
+      final awaiting = ride['awaiting_balance'] == true;
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: const Color(0xFF111111),
           borderRadius: BorderRadius.circular(14),
-          border:
-              Border.all(color: const Color(0xFFFFD34D).withOpacity(.45)),
+          border: Border.all(
+              color: AppColors.red.withOpacity(awaiting ? .55 : .42)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('BALANCE DUE',
-                style: TextStyle(
+            Text(awaiting ? 'PAY TO CLOSE THIS RIDE' : 'BALANCE DUE',
+                style: const TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 10,
                     letterSpacing: 2,
-                    color: Color(0xFFFFD34D),
+                    color: AppColors.red,
                     fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
             Text(
-                'Clear the second half of your 50-50 ride: ₹${balance.toStringAsFixed(2)}',
+                awaiting
+                    ? 'Your rider has ended the trip. Pay the remaining '
+                        '₹${balance.toStringAsFixed(2)} and the ride is '
+                        'complete.'
+                    : 'Clear the second half of your 50-50 ride: '
+                        '₹${balance.toStringAsFixed(2)}',
                 style: const TextStyle(
                     color: Colors.white, fontSize: 13, height: 1.5)),
             const SizedBox(height: 12),
+            // ⭐ v78: the QR is built on its own, like the food checkout
             Center(
               child: _qr == null
-                  ? SizedBox(
-                      height: 44,
-                      child: OutlinedButton.icon(
-                        onPressed: _qrLoading ? null : () => _loadQr(balance),
-                        icon: const Icon(Icons.qr_code_2_rounded, size: 18),
-                        label: const Text('SHOW PAYMENT QR',
-                            style: TextStyle(
-                                fontSize: 12.5, fontWeight: FontWeight.w800)),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: AppColors.red),
-                          foregroundColor: AppColors.red,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: _qrLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                  color: AppColors.red, strokeWidth: 2))
+                          : TextButton.icon(
+                              onPressed: () => _loadQr(balance),
+                              icon: const Icon(Icons.refresh_rounded,
+                                  size: 15, color: Color(0xFF9E9E9E)),
+                              label: const Text('Tap to build the QR again',
+                                  style: TextStyle(
+                                      color: Color(0xFF9E9E9E),
+                                      fontSize: 11.5)),
+                            ),
                     )
                   : _qrBlock(_qr!),
             ),
@@ -1353,9 +1488,10 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                 ),
-                child: const Text('PAY BALANCE',
-                    style:
-                        TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                child: Text(
+                    'PAY ₹${balance.toStringAsFixed(0)} AND COMPLETE',
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w800)),
               ),
             ),
           ],
@@ -1372,7 +1508,7 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
       child: Column(
         children: [
           const Icon(Icons.check_circle_rounded,
-              color: Color(0xFF98E6B0), size: 34),
+              color: Color(0xFFF5F5F5), size: 34),
           const SizedBox(height: 10),
           const Text('Your ride has been completed successfully',
               textAlign: TextAlign.center,
@@ -1490,6 +1626,25 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
               ),
             ],
           ),
+          // ⭐ v78: once the ride has started the student can jump straight
+          // to Google Maps, exactly like the ride partner's portal.
+          if ('${ride['status']}' == 'ongoing') ...[
+            const SizedBox(height: 10),
+            RideButton(
+              label: 'OPEN MAP',
+              height: 46,
+              filled: false,
+              color: RideColors.white,
+              icon: Icons.map_rounded,
+              onTap: () => _openMap(ride),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Opens your route to the destination in Google Maps.',
+              style:
+                  TextStyle(color: Color(0xFF7A7A7A), fontSize: 11, height: 1.5),
+            ),
+          ],
           const SizedBox(height: 10),
           const Text(
             'SOS alerts your rider and every other partner on campus '
@@ -1547,6 +1702,24 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
     showCunnectToast(
         context, err ?? 'SOS sent — help is on the way',
         error: err != null);
+  }
+
+  /// ⭐ v78: OPEN MAP — the same Google Maps directions the ride partner
+  /// gets, for the student once the trip has started.
+  Future<void> _openMap(Map<String, dynamic> ride) async {
+    final pLat = (ride['pickup_lat'] as num?)?.toDouble();
+    final pLng = (ride['pickup_lng'] as num?)?.toDouble();
+    final dLat = (ride['drop_lat'] as num?)?.toDouble();
+    final dLng = (ride['drop_lng'] as num?)?.toDouble();
+    final dest = (dLat != null && dLng != null)
+        ? '$dLat,$dLng'
+        : Uri.encodeComponent('${ride['drop_text']}');
+    final origin =
+        (pLat != null && pLng != null) ? '&origin=$pLat,$pLng' : '';
+    final url = 'https://www.google.com/maps/dir/?api=1'
+        '&destination=$dest$origin';
+    final msg = await openExternalUrl(url);
+    if (mounted && msg != null) showCunnectToast(context, msg);
   }
 
   Future<void> _shareTrip(Map<String, dynamic> ride) async {

@@ -21,7 +21,7 @@ BuildContext? get rootNavKeyForUpdate => rootNavKey.currentContext;
 
 /// ⭐ Internal app version — bump it when building a new APK +
 /// also put the same number + APK link in backend deploy/app_version.json.
-const int kAppVersion = 76;
+const int kAppVersion = 80;
 
 /// ⭐ Animated CUnnect splash on every app open — then route by session.
 class SplashScreen extends StatefulWidget {

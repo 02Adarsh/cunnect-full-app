@@ -97,10 +97,19 @@ class RingService {
     final isNewWork = event == 'new_request' ||
         event == 'new_order' ||
         event == 'new_print_order' ||
+        // ⭐ v79: the one-tap AUTO button — every auto partner rings at
+        // the same moment. There is no ride code behind it, so every tap
+        // rings again (no de-duplication).
+        event == 'auto_call' ||
         title.contains('new order') ||
+        title.contains('auto needed') ||
         title.contains('new ride request') ||
         title.contains('new printout');
     if (!isNewWork) return;
+    if (event == 'auto_call') {
+      await ring(seconds: seconds, key: null);
+      return;
+    }
     final key = '${data['order_id'] ?? ''}'
         '${data['ride_code'] ?? ''}'
         '${data['order_number'] ?? ''}';

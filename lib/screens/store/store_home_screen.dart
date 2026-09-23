@@ -286,7 +286,7 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
                               horizontal: 7, vertical: 3),
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0x66D4C7A3)),
+                            border: Border.all(color: const Color(0x66C9C9C9)),
                           ),
                           child: Text(badge,
                               style: const TextStyle(

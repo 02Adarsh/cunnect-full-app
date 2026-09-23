@@ -139,13 +139,13 @@ class _PrintVendorDashboardScreenState
             child: Row(children: [
               Expanded(
                   child:
-                      _metric('Pending', '$pending', const Color(0xFFD9A94E))),
+                      _metric('Pending', '$pending', const Color(0xFF9E9E9E))),
               const SizedBox(width: 10),
               Expanded(
                   child: _metric(
-                      'In Progress', '$active', const Color(0xFF6EA8FE))),
+                      'In Progress', '$active', const Color(0xFFF5F5F5))),
               const SizedBox(width: 10),
-              Expanded(child: _metric('Completed', '$done', AppColors.green)),
+              Expanded(child: _metric('Completed', '$done', AppColors.red)),
             ]),
           ),
           const SizedBox(height: 12),
@@ -332,14 +332,14 @@ class _OrderCard extends StatelessWidget {
   Color get _statusColor {
     switch (order.status) {
       case PrintOrderStatus.pending:
-        return const Color(0xFFD9A94E);
+        return const Color(0xFF9E9E9E);
       case PrintOrderStatus.accepted:
       case PrintOrderStatus.printing:
-        return const Color(0xFF6EA8FE);
+        return const Color(0xFFF5F5F5);
       case PrintOrderStatus.ready:
-        return const Color(0xFFB58CFF);
+        return const Color(0xFFC9C9C9);
       case PrintOrderStatus.completed:
-        return AppColors.green;
+        return const Color(0xFFF5F5F5);
       case PrintOrderStatus.rejected:
         return const Color(0xFF9A9A9A);
     }
@@ -486,7 +486,7 @@ class _OrderCard extends StatelessWidget {
                           : order.studentPhone)
                       : 'Visible after you accept the order',
                   valueColor: accepted && order.studentPhone.isNotEmpty
-                      ? const Color(0xFFA8EBBA)
+                      ? const Color(0xFFF5F5F5)
                       : null,
                   onTap: accepted && order.studentPhone.isNotEmpty
                       ? () => openExternalUrl('tel:${order.studentPhone}')
@@ -543,7 +543,12 @@ class _OrderCard extends StatelessWidget {
                     child: ElevatedButton(
                       onPressed: () {
                         RingService.stop();
-                        store.updatePrintOrderStatus(order.id, action);
+                        // ⭐ v80: completing a job needs the student's OTP
+                        if (action == 'complete') {
+                          _otpSheet(context, order);
+                        } else {
+                          store.updatePrintOrderStatus(order.id, action);
+                        }
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: action == 'reject'
@@ -581,6 +586,137 @@ class _OrderCard extends StatelessWidget {
             style: const TextStyle(color: AppColors.muted, fontSize: 10.5)),
       );
 
+  /// ⭐ v80: "Complete" asks for the OTP the student is showing at the
+  /// counter. Nothing else can finish a print job.
+  Future<void> _otpSheet(BuildContext context, PrintOrder order) async {
+    final ctl = TextEditingController();
+    var busy = false;
+    final ok = await showModalBottomSheet<bool>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (ctx) => StatefulBuilder(builder: (ctx, setLocal) {
+            return Padding(
+              padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 22),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF0E0E0E),
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(22)),
+                  border: Border(top: BorderSide(color: Color(0x33FFFFFF))),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                          width: 38,
+                          height: 4,
+                          decoration: BoxDecoration(
+                              color: const Color(0xFF3A3A3A),
+                              borderRadius: BorderRadius.circular(2))),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Enter the student\u2019s OTP',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 7),
+                    const Text(
+                        'Ask the student for the 4-digit OTP on his screen '
+                        'and type it here. The job is completed as soon as '
+                        'it matches.',
+                        style: TextStyle(
+                            color: Color(0xFF9E9E9E),
+                            fontSize: 12.5,
+                            height: 1.45)),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: ctl,
+                      keyboardType: TextInputType.number,
+                      maxLength: 4,
+                      textAlign: TextAlign.center,
+                      autofocus: true,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          letterSpacing: 10,
+                          fontWeight: FontWeight.w800),
+                      decoration: InputDecoration(
+                        counterText: '',
+                        hintText: '----',
+                        hintStyle:
+                            const TextStyle(color: Color(0xFF4A4A4A)),
+                        filled: true,
+                        fillColor: const Color(0xFF151515),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(11),
+                          borderSide:
+                              const BorderSide(color: Color(0xFF303030)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(11),
+                          borderSide:
+                              const BorderSide(color: AppColors.red),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: busy
+                            ? null
+                            : () async {
+                                setLocal(() => busy = true);
+                                final err = await context
+                                    .read<AppStore>()
+                                    .printVerifyOtp(order.id, ctl.text);
+                                if (!ctx.mounted) return;
+                                setLocal(() => busy = false);
+                                if (err != null) {
+                                  showCunnectToast(ctx, err, error: true);
+                                  return;
+                                }
+                                Navigator.of(ctx).pop(true);
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.red,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: busy
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    color: Colors.white, strokeWidth: 2))
+                            : const Text('VERIFY AND COMPLETE',
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ) ??
+        false;
+    ctl.dispose();
+    if (ok && context.mounted) {
+      showCunnectToast(context, 'Print job completed');
+    }
+  }
+
   Widget _infoRow(String label, String value,
       {Color? valueColor, VoidCallback? onTap}) {
     return Padding(
@@ -606,7 +742,7 @@ class _OrderCard extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                       decoration:
                           onTap != null ? TextDecoration.underline : null,
-                      decorationColor: const Color(0xFFA8EBBA))),
+                      decorationColor: const Color(0xFFF5F5F5))),
             ),
           ),
         ],
@@ -966,7 +1102,7 @@ class _UpiPanelState extends State<_UpiPanel> {
             const Padding(
               padding: EdgeInsets.only(top: 7),
               child: Text('Your uploaded QR is active at checkout.',
-                  style: TextStyle(color: Color(0xFF7ED98B), fontSize: 10)),
+                  style: TextStyle(color: Color(0xFFF5F5F5), fontSize: 10)),
             ),
         ],
       ),
@@ -1095,15 +1231,15 @@ class _PrintProfileTabState extends State<_PrintProfileTab> {
                   const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(99),
-                color: const Color(0x1738B765),
-                border: Border.all(color: const Color(0x6B38B765)),
+                color: const Color(0x17F5F5F5),
+                border: Border.all(color: const Color(0x6BF5F5F5)),
               ),
               child: const Row(mainAxisSize: MainAxisSize.min, children: [
                 _GlowDot(),
                 SizedBox(width: 6),
                 Text('Active Print Partner',
                     style: TextStyle(
-                        color: Color(0xFF98E6B0),
+                        color: Color(0xFFF5F5F5),
                         fontSize: 10,
                         fontWeight: FontWeight.w800)),
               ]),
@@ -1210,8 +1346,8 @@ class _GlowDot extends StatelessWidget {
       height: 6,
       decoration: const BoxDecoration(
         shape: BoxShape.circle,
-        color: AppColors.green,
-        boxShadow: [BoxShadow(color: AppColors.green, blurRadius: 8)],
+        color: AppColors.red,
+        boxShadow: [BoxShadow(color: AppColors.red, blurRadius: 8)],
       ),
     );
   }

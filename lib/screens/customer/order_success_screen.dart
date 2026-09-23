@@ -41,14 +41,14 @@ class OrderSuccessScreen extends StatelessWidget {
                     height: 62,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: const Color(0x2435B766),
-                      border: Border.all(color: const Color(0xA635B766)),
-                      boxShadow: const [BoxShadow(color: Color(0x2E35B766), blurRadius: 22)],
+                      color: const Color(0x24F5F5F5),
+                      border: Border.all(color: const Color(0xA6F5F5F5)),
+                      boxShadow: const [BoxShadow(color: Color(0x2EF5F5F5), blurRadius: 22)],
                     ),
                     alignment: Alignment.center,
                     child: const Text('✓',
                         style: TextStyle(
-                            color: Color(0xFF91E9AE), fontSize: 31, fontWeight: FontWeight.w900)),
+                            color: Color(0xFFF5F5F5), fontSize: 31, fontWeight: FontWeight.w900)),
                   ),
                   const SizedBox(height: 18),
                   const Text('Order placed!', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w700)),

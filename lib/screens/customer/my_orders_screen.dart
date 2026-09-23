@@ -101,13 +101,13 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
                   height: 6,
                   decoration: const BoxDecoration(
                     shape: BoxShape.circle,
-                    color: AppColors.green,
-                    boxShadow: [BoxShadow(color: AppColors.green, blurRadius: 8)],
+                    color: AppColors.red,
+                    boxShadow: [BoxShadow(color: AppColors.red, blurRadius: 8)],
                   ),
                 ),
                 const SizedBox(width: 6),
                 const Text('Live status updates enabled',
-                    style: TextStyle(color: Color(0xFF91E8AD), fontSize: 10.5)),
+                    style: TextStyle(color: Color(0xFFF5F5F5), fontSize: 10.5)),
               ],
             ),
           ),
@@ -489,7 +489,7 @@ class _HostelCard extends StatelessWidget {
                         style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFFFFD34D))),
+                            color: Color(0xFFF5F5F5))),
                     const SizedBox(height: 4),
                     // ⭐ v60: item summary instead of the old fixed pack
                     Text(
@@ -549,7 +549,7 @@ Widget _chip(String label) {
   switch (label) {
     case 'COMPLETED':
     case 'DELIVERED':
-      c = const Color(0xFF7ED98B);
+      c = const Color(0xFFF5F5F5);
       break;
     case 'CANCELLED':
     case 'REJECTED':
@@ -559,10 +559,10 @@ Widget _chip(String label) {
     case 'PRINTING':
     case 'READY':
     case 'OUTFORDELIVERY':
-      c = const Color(0xFF38BDF8);
+      c = const Color(0xFFC9C9C9);
       break;
     default:
-      c = const Color(0xFFFFD34D);
+      c = const Color(0xFFF5F5F5);
   }
   return Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

@@ -44,6 +44,9 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
 
   Timer? _qrDebounce;
   double _qrAmount = -1;
+  /// \u2b50 v80: keeps "MY ORDERS" live so the delivery OTP shows up as soon
+  /// as the hostel vendor accepts.
+  Timer? _ordersTimer;
 
   @override
   void initState() {
@@ -52,12 +55,18 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
       final store = context.read<AppStore>();
       await store.loadHostelInfo();
       if (!mounted) return;
+      await store.loadMyHostelOrders();
+      if (!mounted) return;
       _refreshQr(); // initial QR (no amount until items are added)
+    });
+    _ordersTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted) context.read<AppStore>().loadMyHostelOrders();
     });
   }
 
   @override
   void dispose() {
+    _ordersTimer?.cancel();
     _qrDebounce?.cancel();
     for (final c in [_rName, _rMobile, _address, _txnId]) {
       c.dispose();
@@ -229,6 +238,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
         _error = '${res['error']}';
       } else {
         _placed = (res['order'] as Map?)?.cast<String, dynamic>();
+        await store.loadMyHostelOrders();
       }
     });
   }
@@ -500,7 +510,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                                     Icons
                                         .account_balance_wallet_outlined,
                                     size: 16,
-                                    color: Color(0xFFFFD34D)),
+                                    color: Color(0xFFF5F5F5)),
                                 const SizedBox(width: 9),
                                 Expanded(
                                   child: Column(
@@ -610,8 +620,141 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                                   fontWeight: FontWeight.w800)),
                     ),
                   ),
+                  // \u2b50 v80: MY ORDERS — the OTP shown here is the code the
+                  // vendor has to type in before the order can be delivered.
+                  const SizedBox(height: 22),
+                  _sectionTitle('MY ORDERS'),
+                  if (store.myHostelOrders.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: AppColors.panel,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppColors.line),
+                      ),
+                      child: const Center(
+                        child: Text('No orders yet.',
+                            style: TextStyle(
+                                color: AppColors.muted, fontSize: 11)),
+                      ),
+                    ),
+                  for (final o in store.myHostelOrders) _myOrderCard(o),
                 ],
               ),
+      ),
+    );
+  }
+
+  /// \u2b50 v80: one past order — status, the item list and (while it is on
+  /// its way) the delivery OTP the student has to show at the door.
+  Widget _myOrderCard(Map<String, dynamic> o) {
+    final status = '${o['status'] ?? ''}';
+    final otp = '${o['delivery_otp'] ?? ''}';
+    final verified = (o['otp_verified'] ?? false) == true;
+    final items = [
+      for (final raw in (o['items'] as List? ?? []))
+        (raw as Map).cast<String, dynamic>()
+    ];
+    final label = status == 'delivered'
+        ? 'DELIVERED'
+        : status == 'cancelled'
+            ? 'CANCELLED'
+            : status == 'accepted'
+                ? 'OUT FOR DELIVERY'
+                : 'PLACED';
+    final color = status == 'delivered'
+        ? const Color(0xFFC9C9C9)
+        : status == 'cancelled'
+            ? const Color(0xFF7A7A7A)
+            : status == 'accepted'
+                ? const Color(0xFFF5F5F5)
+                : const Color(0xFFF10B1D);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: AppColors.panel,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Expanded(
+              child: Text(
+                  'Order #${o['id']} · '
+                  '${'${o['created_at'] ?? ''}'.toString().replaceFirst('T', ' ')}'
+                      .trim(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w800)),
+            ),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: color.withOpacity(.14),
+                borderRadius: BorderRadius.circular(7),
+              ),
+              child: Text(label,
+                  style: TextStyle(
+                      color: color,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800)),
+            ),
+          ]),
+          if (items.isNotEmpty) ...[
+            const SizedBox(height: 7),
+            for (final it in items)
+              Padding(
+                padding: const EdgeInsets.only(top: 3),
+                child: Text(
+                    '${it['qty'] ?? 1} \u00d7 ${it['name'] ?? 'Item'}',
+                    style: const TextStyle(
+                        color: AppColors.muted, fontSize: 11)),
+              ),
+          ],
+          const SizedBox(height: 8),
+          Row(children: [
+            Text('\u20b9${((o['total'] ?? 0) as num).round()}',
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w800)),
+            const Spacer(),
+            if (status == 'delivered' && verified)
+              const Text('OTP verified',
+                  style: TextStyle(
+                      color: Color(0xFF7A7A7A), fontSize: 10)),
+          ]),
+          if (otp.isNotEmpty && !verified && status == 'accepted') ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: const Color(0x1AF10B1D),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0x80F10B1D)),
+              ),
+              child: Column(children: [
+                const Text('Show this OTP to collect your delivery',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Color(0xFFFFB0B7),
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700)),
+                const SizedBox(height: 5),
+                Text(otp,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 25,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 7)),
+              ]),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -689,7 +832,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                         const SizedBox(width: 7),
                         Text('Only $stock left',
                             style: const TextStyle(
-                                color: Color(0xFFFFD34D),
+                                color: Color(0xFFF5F5F5),
                                 fontSize: 9.5,
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: .3)),
@@ -703,7 +846,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                   style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFFFFD34D))),
+                      color: Color(0xFFF5F5F5))),
               const SizedBox(width: 11),
               qty == 0
                   ? _AddButton(
@@ -934,7 +1077,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                   style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFFFFD34D))),
+                      color: Color(0xFFF5F5F5))),
             ]),
           ),
         ],
@@ -961,9 +1104,9 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                 width: 84,
                 height: 84,
                 decoration: const BoxDecoration(
-                    shape: BoxShape.circle, color: Color(0x2416A34A)),
+                    shape: BoxShape.circle, color: Color(0x24F5F5F5)),
                 child: const Icon(Icons.check_circle,
-                    size: 46, color: Color(0xFF7ED98B)),
+                    size: 46, color: Color(0xFFF5F5F5)),
               ),
             ),
             const SizedBox(height: 16),
@@ -976,7 +1119,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
             Center(
               child: Text('Order No: ${o['order_no']}',
                   style: const TextStyle(
-                      color: Color(0xFFFFD34D),
+                      color: Color(0xFFF5F5F5),
                       fontSize: 13,
                       fontWeight: FontWeight.w700)),
             ),

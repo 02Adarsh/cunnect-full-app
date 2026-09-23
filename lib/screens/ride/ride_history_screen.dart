@@ -468,7 +468,7 @@ class _HistoryDetails extends StatelessWidget {
           _row('Was due', '₹${due.toStringAsFixed(2)}',
               color: RideColors.amber),
         if (txn.isNotEmpty) _row('Txn id', txn),
-        if (txn2.isNotEmpty) _row('Second txn', txn2),
+        if (txn2.isNotEmpty) _row('Balance txn', txn2),
         if (pax.isNotEmpty)
           _row('Split with',
               pax.map((p) => '${(p as Map)['name']} ₹${(p['amount'] as num).toStringAsFixed(0)}').join(', ')),

@@ -367,9 +367,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0x1738B765),
+        color: const Color(0x17F5F5F5),
         borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: const Color(0x6B38B765)),
+        border: Border.all(color: const Color(0x6BF5F5F5)),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Container(
@@ -377,14 +377,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           height: 7,
           decoration: const BoxDecoration(
             shape: BoxShape.circle,
-            color: AppColors.green,
-            boxShadow: [BoxShadow(color: AppColors.green, blurRadius: 8)],
+            color: AppColors.red,
+            boxShadow: [BoxShadow(color: AppColors.red, blurRadius: 8)],
           ),
         ),
         const SizedBox(width: 6),
         Text('$live LIVE',
             style: const TextStyle(
-                color: Color(0xFF98E6B0),
+                color: Color(0xFFF5F5F5),
                 fontSize: 10.5,
                 fontWeight: FontWeight.w800,
                 letterSpacing: .6)),
@@ -481,13 +481,13 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           // ---- headline: active users · impressions · traffic ----
           Row(children: [
             _metric('Active Users', '${s['live_users'] ?? 0}',
-                AppColors.green, Icons.podcasts_rounded),
+                AppColors.red, Icons.podcasts_rounded),
             const SizedBox(width: 10),
             _metric('Impressions Today', _compact(s['impressions_today']),
-                const Color(0xFF6EA8FE), Icons.visibility_rounded),
+                const Color(0xFFF5F5F5), Icons.visibility_rounded),
             const SizedBox(width: 10),
             _metric('Traffic Today', _compact(s['traffic_today']),
-                const Color(0xFFB58CFF), Icons.groups_rounded),
+                const Color(0xFFC9C9C9), Icons.groups_rounded),
           ]),
           const SizedBox(height: 12),
           // ---- single horizontal period bar ----
@@ -503,8 +503,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               points: points,
               primaryKey: 'impressions',
               secondaryKey: 'traffic',
-              primaryColor: const Color(0xFF6EA8FE),
-              secondaryColor: const Color(0xFFB58CFF),
+              primaryColor: const Color(0xFFF5F5F5),
+              secondaryColor: const Color(0xFFC9C9C9),
               primaryLabel: 'Impressions',
               secondaryLabel: 'Traffic',
             ),
@@ -513,12 +513,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           // ---- transactions + revenue today ----
           Row(children: [
             _metric('Transactions Today', '${s['transactions_today'] ?? 0}',
-                const Color(0xFFD9A94E), Icons.swap_horiz_rounded),
+                const Color(0xFF9E9E9E), Icons.swap_horiz_rounded),
             const SizedBox(width: 10),
             _metric(
                 'Revenue Today',
                 '₹${_compact(s['revenue_today'])}',
-                AppColors.green,
+                AppColors.red,
                 Icons.currency_rupee_rounded),
           ]),
           const SizedBox(height: 12),
@@ -529,16 +529,16 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 'Period total ₹${_compact(totals['revenue'])}'),
             child: Column(children: [
               _sourceRow('🍔  Food', (revBySource['food'] ?? 0),
-                  (totals['food'] ?? 0), const Color(0xFF6EA8FE)),
+                  (totals['food'] ?? 0), const Color(0xFFF5F5F5)),
               _sourceRow('🖨  Print', (revBySource['print'] ?? 0),
                   (totals['print'] ?? 0), const Color(0xFFFF9CA4)),
               _sourceRow('🛏  Hostel', (revBySource['hostel'] ?? 0),
-                  (totals['hostel'] ?? 0), const Color(0xFFB58CFF)),
+                  (totals['hostel'] ?? 0), const Color(0xFFC9C9C9)),
               const SizedBox(height: 8),
               _TrendBars(
                 points: points,
                 primaryKey: 'revenue',
-                primaryColor: AppColors.green,
+                primaryColor: AppColors.red,
                 primaryLabel: 'Revenue ₹',
               ),
             ]),
@@ -567,7 +567,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                             height: 7,
                             decoration: const BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: AppColors.green),
+                                color: AppColors.red),
                           ),
                           const SizedBox(width: 9),
                           Expanded(
@@ -909,7 +909,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: const Color(0x66D4C7A3)),
+              border: Border.all(color: const Color(0x66C9C9C9)),
             ),
             child: const Text('CORE',
                 style: TextStyle(
@@ -925,13 +925,13 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             child: const Padding(
               padding: EdgeInsets.all(5),
               child: Icon(Icons.edit_outlined,
-                  size: 15, color: Color(0xFF9ECBFF)),
+                  size: 15, color: Color(0xFFC9C9C9)),
             ),
           ),
         if (onToggle != null)
           Switch(
               value: activeNow,
-              activeColor: AppColors.green,
+              activeColor: AppColors.red,
               onChanged: (_) => onToggle()),
         if (onDelete != null)
           InkWell(
@@ -988,10 +988,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     final type = (v['vendor_type'] ?? 'food') as String;
     final (icon, typeColor) = switch (type) {
       'printout' => ('🖨', const Color(0xFFFF9CA4)),
-      'hostel' => ('🛏', const Color(0xFFB58CFF)),
+      'hostel' => ('🛏', const Color(0xFFC9C9C9)),
       // ⭐ v66: ride partners (drivers) get their own console.
-      'ride' => ('🛺', const Color(0xFF98E6B0)),
-      'food' => ('🍔', const Color(0xFF6EA8FE)),
+      'ride' => ('🛺', const Color(0xFFF5F5F5)),
+      'food' => ('🍔', const Color(0xFFF5F5F5)),
       _ => ('🛍', AppColors.gold),
     };
     return Container(
@@ -1405,7 +1405,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   Text(status.toUpperCase(),
                       style: const TextStyle(
-                          color: Color(0xFFD9A94E),
+                          color: Color(0xFF9E9E9E),
                           fontSize: 8.5,
                           fontWeight: FontWeight.w800)),
                   const SizedBox(width: 3),
@@ -1596,7 +1596,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               side: BorderSide(
                   color: active
                       ? const Color(0x8CF10B1D)
-                      : const Color(0x6B38B765)),
+                      : const Color(0x6BF5F5F5)),
               shape:
                   RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -1607,7 +1607,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 style: TextStyle(
                     color: active
                         ? const Color(0xFFFF9CA4)
-                        : const Color(0xFF98E6B0))),
+                        : const Color(0xFFF5F5F5))),
           ),
         ),
       ]),
@@ -1823,7 +1823,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                                   : 'HIDDEN',
                               style: TextStyle(
                                   color: (b['is_active'] ?? true) as bool
-                                      ? const Color(0xFF98E6B0)
+                                      ? const Color(0xFFF5F5F5)
                                       : AppColors.muted,
                                   fontSize: 9)),
                         ],
@@ -1832,7 +1832,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     IconButton(
                       onPressed: () => _showBannerForm(banner: b as Map),
                       icon: const Icon(Icons.edit_outlined,
-                          size: 16, color: Color(0xFF9ECBFF)),
+                          size: 16, color: Color(0xFFC9C9C9)),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(
                           minWidth: 34, minHeight: 34),
@@ -1893,7 +1893,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     ),
                     Switch(
                       value: (c['is_active'] ?? true) as bool,
-                      activeColor: AppColors.green,
+                      activeColor: AppColors.red,
                       onChanged: (v) async {
                         // ⭐ Optimistic: flips instantly.
                         setState(() => c['is_active'] = v);
@@ -1990,9 +1990,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                             horizontal: 7, vertical: 3),
                         decoration: BoxDecoration(
                           color: switch ('${r['status']}') {
-                            'resolved' => const Color(0x1738B765),
-                            'in_progress' => const Color(0x176EA8FE),
-                            _ => const Color(0x17D9A94E),
+                            'resolved' => const Color(0x17F5F5F5),
+                            'in_progress' => const Color(0x17F5F5F5),
+                            _ => const Color(0x179E9E9E),
                           },
                           borderRadius: BorderRadius.circular(99),
                         ),
@@ -2000,9 +2000,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                             '${r['status']}'.replaceAll('_', ' ').toUpperCase(),
                             style: TextStyle(
                                 color: switch ('${r['status']}') {
-                                  'resolved' => const Color(0xFF98E6B0),
-                                  'in_progress' => const Color(0xFF9ECBFF),
-                                  _ => const Color(0xFFD9A94E),
+                                  'resolved' => const Color(0xFFF5F5F5),
+                                  'in_progress' => const Color(0xFFC9C9C9),
+                                  _ => const Color(0xFF9E9E9E),
                                 },
                                 fontSize: 8,
                                 fontWeight: FontWeight.w800)),
@@ -2440,7 +2440,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                         horizontal: 7, vertical: 3),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0x66D4C7A3)),
+                      border: Border.all(color: const Color(0x66C9C9C9)),
                     ),
                     child: const Text('CORE',
                         style: TextStyle(

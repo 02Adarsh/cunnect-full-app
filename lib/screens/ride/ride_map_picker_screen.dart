@@ -534,7 +534,7 @@ class _RideMapPickerScreenState extends State<RideMapPickerScreen> {
                                       children: [
                                         const Icon(Icons.place_outlined,
                                             size: 17,
-                                            color: Color(0xFF98E6B0)),
+                                            color: Color(0xFFF5F5F5)),
                                         const SizedBox(width: 11),
                                         Expanded(
                                           child: Column(

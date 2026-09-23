@@ -151,7 +151,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
           const SizedBox(width: 7),
           _actionChip(
             store.vendorAlertsEnabled ? 'Alerts On' : 'Enable Alerts',
-            activeColor: store.vendorAlertsEnabled ? const Color(0xFF9BE7B4) : null,
+            activeColor: store.vendorAlertsEnabled ? const Color(0xFFF5F5F5) : null,
             onTap: () => setState(() => store.vendorAlertsEnabled = true),
           ),
           const SizedBox(width: 7),
@@ -304,9 +304,9 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
                 borderRadius: BorderRadius.circular(99),
                 border: Border.all(
                     color: store.kitchenOpen
-                        ? const Color(0x7338B765)
+                        ? const Color(0x73F5F5F5)
                         : const Color(0xA6F10B1D)),
-                color: store.kitchenOpen ? const Color(0x1738B765) : const Color(0x1FF10B1D),
+                color: store.kitchenOpen ? const Color(0x17F5F5F5) : const Color(0x1FF10B1D),
               ),
               child: Text(
                 store.kitchenOpen
@@ -315,7 +315,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w800,
-                  color: store.kitchenOpen ? const Color(0xFF9BE7B4) : const Color(0xFFFFABB2),
+                  color: store.kitchenOpen ? const Color(0xFFF5F5F5) : const Color(0xFFFFABB2),
                 ),
               ),
             ),
@@ -547,7 +547,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
                                       const SizedBox(height: 3),
                                       GestureDetector(onTap: () => _dial(context, active[i].customerPhone), child: Text('📞 ${active[i].customerPhone}',
                                           style: const TextStyle(
-                                              color: Color(0xFF7ED98B),
+                                              color: Color(0xFFF5F5F5),
                                               fontSize: 11,
                                               fontWeight: FontWeight.w800)))
                                     ],
@@ -556,11 +556,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
                               ),
                               const SizedBox(width: 10),
                               if (active[i].status == OrderStatus.accepted)
-                                _orderButton('Start Preparing', const Color(0xFF2E9D55),
+                                _orderButton('Start Preparing', const Color(0xFFF10B1D),
                                     Colors.white,
                                     () => store.vendorUpdateOrderStatus(active[i].id, 'prepare'))
                               else if (active[i].status == OrderStatus.preparing)
-                                _orderButton('Mark Ready', const Color(0xFF2E9D55), Colors.white,
+                                _orderButton('Mark Ready', const Color(0xFFF10B1D), Colors.white,
                                     () => store.vendorUpdateOrderStatus(active[i].id, 'ready'))
                               else if (active[i].status == OrderStatus.ready)
                                 GestureDetector(
@@ -618,7 +618,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen> {
                   const SizedBox(height: 2),
                   const Text('TODAY',
                       style: TextStyle(
-                          color: Color(0xFF8BDDAA), fontSize: 9, fontWeight: FontWeight.w700)),
+                          color: Color(0xFFF5F5F5), fontSize: 9, fontWeight: FontWeight.w700)),
                 ],
               ),
             ],
@@ -889,7 +889,7 @@ class _Metric extends StatelessWidget {
                 style: const TextStyle(
                     fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: -.7)),
             const SizedBox(height: 5),
-            Text(note, style: const TextStyle(color: Color(0xFF8BDDAA), fontSize: 9)),
+            Text(note, style: const TextStyle(color: Color(0xFFF5F5F5), fontSize: 9)),
           ],
         ),
       ),

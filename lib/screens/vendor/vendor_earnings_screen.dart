@@ -182,7 +182,7 @@ class _VendorEarningsScreenState extends State<VendorEarningsScreen> {
                                         ),
                                         Text('₹${store.recentEarnings(year)[i].totalAmount.round()}',
                                             style: const TextStyle(
-                                                color: Color(0xFF8BDDAA),
+                                                color: Color(0xFFF5F5F5),
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.w800)),
                                       ],
@@ -235,7 +235,7 @@ class _VendorEarningsScreenState extends State<VendorEarningsScreen> {
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, letterSpacing: -.6)),
             ),
             const SizedBox(height: 4),
-            Text(note, style: const TextStyle(color: Color(0xFF8BDDAA), fontSize: 8.5)),
+            Text(note, style: const TextStyle(color: Color(0xFFF5F5F5), fontSize: 8.5)),
           ],
         ),
       ),

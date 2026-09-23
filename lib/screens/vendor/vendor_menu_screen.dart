@@ -146,10 +146,10 @@ class _MenuItemRow extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(99),
-                    color: item.isAvailable ? const Color(0x1738B765) : AppColors.surface,
+                    color: item.isAvailable ? const Color(0x17F5F5F5) : AppColors.surface,
                     border: Border.all(
                         color: item.isAvailable
-                            ? const Color(0x7A38B765)
+                            ? const Color(0x7AF5F5F5)
                             : const Color(0xFF3C3C3C)),
                   ),
                   alignment: Alignment.center,
@@ -158,7 +158,7 @@ class _MenuItemRow extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 9.5,
                       fontWeight: FontWeight.w800,
-                      color: item.isAvailable ? const Color(0xFF93E4AE) : const Color(0xFFAAAAAA),
+                      color: item.isAvailable ? const Color(0xFFF5F5F5) : const Color(0xFFAAAAAA),
                     ),
                   ),
                 ),

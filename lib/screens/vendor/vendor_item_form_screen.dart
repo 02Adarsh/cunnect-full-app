@@ -245,7 +245,7 @@ class _VendorItemFormScreenState extends State<VendorItemFormScreen> {
   /// ⭐ VEG / NON-VEG segmented choice — standard mark ke saath.
   Widget _vegChoice(bool veg, String label) {
     final selected = _isVeg == veg;
-    final color = veg ? const Color(0xFF0F8A3C) : const Color(0xFFD32F2F);
+    final color = veg ? const Color(0xFFF10B1D) : const Color(0xFFD32F2F);
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(8),

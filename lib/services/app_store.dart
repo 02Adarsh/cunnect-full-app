@@ -1993,6 +1993,36 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  /// ⭐ v80: the print vendor types the OTP the student shows. The job
+  /// is completed by the server the moment the OTP matches.
+  Future<String?> printVerifyOtp(int orderId, String otp) async {
+    try {
+      await api.post('/api/print/orders/$orderId/verify-otp/',
+          token: ApiConfig.vendorToken, body: {'otp': otp.trim()});
+      await loadPrintVendorDashboard();
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'Could not verify that OTP. Try again.';
+    }
+  }
+
+  /// ⭐ v80: the hostel vendor types the OTP the student reads out at
+  /// the door — the order is marked delivered by the server.
+  Future<String?> hostelVerifyOtp(int orderId, String otp) async {
+    try {
+      await api.post('/api/vendor/hostel-orders/$orderId/verify-otp/',
+          token: ApiConfig.vendorToken, body: {'otp': otp.trim()});
+      await loadVendorHostelOrders();
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'Could not verify that OTP. Try again.';
+    }
+  }
+
   /// Vendor dashboard status action buttons — like the Django template.
   List<(String, String)> printNextActions(PrintOrder order) {
     switch (order.status) {
@@ -3036,6 +3066,11 @@ class AppStore extends ChangeNotifier {
   Map<String, dynamic>? get rideProfile => _rideProfile;
   List<dynamic> _rideVehicles = [];
   List<dynamic> get rideVehicles => _rideVehicles;
+
+  /// ⭐ v77: the partner's own cars (name + number plate) — he picks one
+  /// of these while accepting a request.
+  List<dynamic> _rideGarage = [];
+  List<dynamic> get rideGarage => _rideGarage;
   List<dynamic> _rideRequests = [];
   List<dynamic> get rideRequests => _rideRequests;
   List<dynamic> _rideVendorActive = [];
@@ -3268,6 +3303,7 @@ class AppStore extends ChangeNotifier {
       final d = api.dataOf(r);
       _rideProfile = Map<String, dynamic>.from(d['profile'] as Map? ?? {});
       _rideVehicles = (d['vehicles'] as List?) ?? const [];
+      _rideGarage = (d['garage'] as List?) ?? const [];
       notifyListeners();
     } catch (_) {}
   }
@@ -3277,12 +3313,15 @@ class AppStore extends ChangeNotifier {
     required String vehicleModel,
     required bool isOnline,
     required Map<String, Map<String, dynamic>> rates,
+    bool? isAuto,
   }) async {
     try {
       final body = <String, dynamic>{
         'vehicle_number': vehicleNumber,
         'vehicle_model': vehicleModel,
         'is_online': isOnline,
+        // ⭐ v79: "I drive an auto" — these partners get the one-tap calls
+        if (isAuto != null) 'is_auto': isAuto,
       };
       body.addAll(rates);
       final r = await api.post('/api/ride/vendor/profile/',
@@ -3459,6 +3498,49 @@ class AppStore extends ChangeNotifier {
 
   // ------------------------- v74 additions -------------------------
 
+  /// ⭐ v78: ending a 50-50 ride PARKS it until the student pays the
+  /// balance, so the console has to hear back what actually happened.
+  /// ⭐ v79: ONE TAP on the AUTO button -> every auto partner on campus
+  /// is alerted at the same moment. No booking, no fare, no payment —
+  /// the pickup is always the campus main gate.
+  Future<Map<String, dynamic>> rideAutoCall() async {
+    try {
+      final r = await api.post('/api/ride/auto/call/',
+          token: ApiConfig.studentToken, body: {});
+      final d = api.dataOf(r);
+      return {
+        'ok': true,
+        'sent': (d['sent'] as num?)?.toInt() ?? 0,
+        'message': '${d['message'] ?? 'Auto partners alerted.'}',
+      };
+    } on ApiException catch (error) {
+      return {'ok': false, 'error': error.message};
+    } catch (_) {
+      return {
+        'ok': false,
+        'error': 'Could not reach the auto partners. Try again.'
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> rideVendorComplete(String code) async {
+    try {
+      final r = await api.post('/api/ride/vendor/complete/$code/',
+          token: ApiConfig.vendorToken, body: {});
+      final d = api.dataOf(r);
+      await loadRideVendorRides();
+      await loadRideRequests();
+      return {'ok': true, 'awaiting': d['awaiting_balance'] == true};
+    } on ApiException catch (error) {
+      return {'ok': false, 'error': error.message};
+    } catch (_) {
+      return {
+        'ok': false,
+        'error': 'That action did not go through. Please try again.'
+      };
+    }
+  }
+
   /// The ride partner confirms he took the remaining cash.
   Future<String?> rideCollectBalance(String code) async {
     try {
@@ -3475,6 +3557,58 @@ class AppStore extends ChangeNotifier {
 
   /// ⭐ v75: the rider confirms the payment HIMSELF — nothing moves on
   /// automatically once the student has paid.
+  /// ⭐ v77: accept a request WITH the car the rider will drive — one of
+  /// his saved vehicles (id) or a one-off for this ride only.
+  Future<String?> rideVendorAccept(String code,
+      {int? vehicleId, String? vehicleName, String? vehiclePlate}) async {
+    try {
+      final body = <String, dynamic>{
+        if (vehicleId != null) 'vehicle_id': vehicleId,
+        if (vehicleName != null) 'vehicle_name': vehicleName,
+        if (vehiclePlate != null) 'vehicle_plate': vehiclePlate,
+      };
+      await api.post('/api/ride/vendor/accept/$code/',
+          token: ApiConfig.vendorToken, body: body);
+      await loadRideVendorProfile();
+      await loadRideVendorRides();
+      await loadRideRequests();
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'That action did not go through. Please try again.';
+    }
+  }
+
+  /// ⭐ v77: the partner's garage — every car with its number plate.
+  Future<String?> addRideVehicle(
+      String type, String name, String plate) async {
+    try {
+      await api.post('/api/ride/vendor/vehicles/',
+          token: ApiConfig.vendorToken,
+          body: {'vehicle_type': type, 'name': name, 'plate': plate});
+      await loadRideVendorProfile();
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'Could not save the vehicle. Try again.';
+    }
+  }
+
+  Future<String?> deleteRideVehicle(int id) async {
+    try {
+      await api.post('/api/ride/vendor/vehicles/$id/delete/',
+          token: ApiConfig.vendorToken, body: {});
+      await loadRideVendorProfile();
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'Could not remove the vehicle. Try again.';
+    }
+  }
+
   Future<String?> rideVendorConfirm(String code) async {
     return rideVendorAction('confirm', code);
   }

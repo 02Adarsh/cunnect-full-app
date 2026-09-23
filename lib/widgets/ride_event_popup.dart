@@ -103,15 +103,14 @@ class RideEventPopup extends StatelessWidget {
 
   static bool _open = false;
 
+  // ⭐ v77: red / black / white only — no green or neon anywhere.
   Color get _tint => switch (event) {
         'accepted' || 'payment_done' || 'balance_done' || 'started' ||
-        'balance_paid' || 'balance_cleared' =>
-          RideColors.mint,
-        'paid' => RideColors.mint,
-        'arrived' => RideColors.sky,
-        'completed' => RideColors.violet,
-        'rejected' || 'no_rider' || 'cancelled' => RideColors.amber,
-        'sos' => AppColors.red,
+        'balance_paid' || 'balance_cleared' || 'paid' =>
+          RideColors.white,
+        'arrived' || 'completed' => RideColors.soft,
+        'rejected' || 'no_rider' || 'cancelled' => AppColors.muted,
+        'sos' || 'new_request' => AppColors.red,
         _ => AppColors.red,
       };
 
