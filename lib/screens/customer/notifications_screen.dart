@@ -45,9 +45,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final all = store.notificationsFor(_userId);
-    final items = category == null
+    final wanted = widget.category;
+    final items = wanted == null
         ? all
-        : [for (final n in all) if (n.category == category) n];
+        : [for (final n in all) if (n.category == wanted) n];
 
     return Scaffold(
       backgroundColor: AppColors.page,
