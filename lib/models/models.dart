@@ -342,12 +342,18 @@ class AppNotification {
   final bool isRead;
   final DateTime createdAt;
 
+  /// ⭐ v84: which part of the app this row belongs to
+  /// (food / print / ride / hostel / auto / general). The food bell shows
+  /// food rows only — everything else has its own screen.
+  final String category;
+
   AppNotification({
     required this.id,
     required this.title,
     required this.message,
     required this.isRead,
     required this.createdAt,
+    this.category = 'food',
   });
 
   factory AppNotification.fromJson(Map<String, dynamic> json) {
@@ -358,6 +364,7 @@ class AppNotification {
       isRead: (json['is_read'] ?? false) as bool,
       createdAt: DateTime.tryParse((json['created_at_iso'] ?? '') as String) ??
           DateTime.now(),
+      category: (json['category'] ?? 'food') as String,
     );
   }
 }

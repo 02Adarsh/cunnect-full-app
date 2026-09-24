@@ -23,6 +23,7 @@ class MyOrdersScreen extends StatefulWidget {
 
 class _MyOrdersScreenState extends State<MyOrdersScreen> {
   Timer? _timer;
+  int _ticks = 0;
   String _filter = 'all'; // all | food | print | hostel | ride
 
   @override
@@ -43,7 +44,18 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
     _timer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
       setState(() {});
-      context.read<AppStore>().refreshOrderStatuses();
+      final store = context.read<AppStore>();
+      store.refreshOrderStatuses();
+      if (widget.mode == 'food') return;
+      // ⭐ v84: every 9s the other tabs are re-fetched too, so "ALL"
+      // really lists print, hostel, rides and auto calls as they happen.
+      _ticks++;
+      if (_ticks % 3 == 0) {
+        store.loadMyPrintOrders();
+        store.loadMyHostelOrders();
+        store.loadRides();
+        store.loadMyAutoCalls();
+      }
     });
   }
 
@@ -491,9 +503,27 @@ class _HostelCard extends StatelessWidget {
 
   const _HostelCard({required this.order});
 
+  /// ⭐ v84: 'out_for_delivery' reads like a sentence, not a key.
+  String get _label {
+    switch ('${order['status']}') {
+      case 'out_for_delivery':
+        return 'OUT FOR DELIVERY';
+      case 'delivered':
+        return 'DELIVERED';
+      case 'cancelled':
+        return 'CANCELLED';
+      case 'accepted':
+        return 'ACCEPTED';
+      default:
+        return 'PLACED';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final status = '${order['status']}'.toUpperCase();
+    final status = _label;
+    final otp = ('${order['delivery_otp'] ?? ''}');
+    final otpDone = (order['otp_verified'] ?? false) == true;
     return Container(
       margin: const EdgeInsets.only(top: 11),
       padding: const EdgeInsets.all(14),
@@ -551,6 +581,35 @@ class _HostelCard extends StatelessWidget {
                 style:
                     const TextStyle(color: AppColors.muted, fontSize: 10.5)),
           ),
+          // ⭐ v84: the hand-over OTP — it shows from ACCEPTED through
+          // OUT FOR DELIVERY, exactly like the printout orders.
+          if (otp.isNotEmpty && otp != 'null' && !otpDone) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: const Color(0x1AF10B1D),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0x80F10B1D)),
+              ),
+              child: Column(children: [
+                const Text('Show this OTP when he hands the order over',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Color(0xFFFFB0B7),
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700)),
+                const SizedBox(height: 5),
+                Text(otp,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 7)),
+              ]),
+            ),
+          ],
           Padding(
             padding: const EdgeInsets.only(top: 11),
             child: Row(

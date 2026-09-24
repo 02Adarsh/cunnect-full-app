@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/app_store.dart';
+import '../../services/ring_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
 
@@ -15,11 +18,41 @@ class HostelVendorScreen extends StatefulWidget {
 }
 
 class _HostelVendorScreenState extends State<HostelVendorScreen> {
+  /// ⭐ v84: the hostel portal rings for 20 seconds on a brand-new order
+  /// — the same ring every other partner portal uses.
+  final Set<String> _seenOrders = <String>{};
+  bool _ordersLoadedOnce = false;
+  Timer? _pollTimer;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback(
         (_) => context.read<AppStore>().loadVendorHostelOrders());
+    _pollTimer = Timer.periodic(
+        const Duration(seconds: 5), (_) {
+      if (mounted) context.read<AppStore>().loadVendorHostelOrders();
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  void _ringOnNewOrders(AppStore store) {
+    final ids =
+        store.vendorHostelOrders.map((o) => '${o['id']}').toSet();
+    if (!_ordersLoadedOnce) {
+      _seenOrders.addAll(ids);
+      _ordersLoadedOnce = true;
+      return;
+    }
+    final fresh = ids.difference(_seenOrders);
+    if (fresh.isEmpty) return;
+    _seenOrders.addAll(fresh);
+    RingService.ring(key: fresh.first);
   }
 
   Color _statusColor(String s) {
@@ -39,6 +72,7 @@ class _HostelVendorScreenState extends State<HostelVendorScreen> {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final orders = store.vendorHostelOrders;
+    _ringOnNewOrders(store);
     return Scaffold(
       backgroundColor: AppColors.page,
       body: SafeArea(

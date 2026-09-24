@@ -1,10 +1,43 @@
-CUnnect v83 — the colour fix + orders in one place
+CUnnect v84 — veg is green, food bell is food-only, ride in Orders
 ==========================================================================
-(Cumulative: includes v61-v82.)
+(Cumulative: includes v61-v83.)
 
-NO NEW MIGRATION THIS TIME — nothing was added to the database.
-(If you never ran v81: that release needs `python manage.py migrate`
-for ride.0012. v83 itself adds no tables.)
+TWO NEW MIGRATIONS THIS TIME (run them once):
+  python manage.py migrate
+    myapp.0036  HostelOrder gets the OUT FOR DELIVERY status
+    food.0024   notifications get hostel + auto categories
+
+=================================================================
+0) WHAT v84 CHANGES
+=================================================================
+1. VEG IS GREEN AGAIN, NON-VEG STAYS RED. The mark had been painted
+   red for both — VegMark now uses #0F8A3C / #D32F2F like it used to.
+2. ADMIN > VENDORS: the AUTO PARTNERS strip is gone from above the
+   swipe row. The swipe header is back to normal and AUTO partners
+   are managed from the small red AUTO button on that row.
+3. THE FOOD BELL SHOWS FOOD ONLY. Notifications now carry a category
+   (food / print / ride / hostel / auto / general) and the food
+   screen lists food rows only — ride, auto, hostel and print rows
+   stay out of it.
+4. MY ORDERS: the ALL tab really lists everything — food, printout,
+   hostel, rides and your AUTO calls — and it refreshes every few
+   seconds so nothing has to be reopened.
+5. HOSTEL: a new OUT FOR DELIVERY status. When the vendor starts the
+   delivery the OTP is generated and shown to the student, and a
+   notification goes out with the OTP in it (screen on or off).
+6. HOSTEL ESSENTIALS: the "MY ORDERS" block below Place Order is
+   gone — the page now stops at Place Order. "My Orders" is still
+   the button at the top right.
+7. EVERY VENDOR RINGS THE SAME: the hostel portal now rings for 20
+   seconds on a new order, exactly like food, print and ride.
+8. EVERY ORDER ANNOUNCES ITSELF: placing a hostel or a print order
+   sends the student a notification, just like food does.
+9. RIDE: the "SHOW PAYMENT QR" button is gone — the QR builds itself
+   like the food and hostel checkouts do.
+10. ADMIN > ORDERS has a RIDE tab next to Food / Print / Hostel.
+11. ADD A STORE AND EVERYTHING FOLLOWS: the new store gets its own
+    vendor at once (it appears in the Vendors swipe), its type shows
+    up in "Add vendor", and its Orders tab is created automatically.
 
 
 =================================================================

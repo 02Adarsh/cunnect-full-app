@@ -158,7 +158,9 @@ class _FoodHomeScreenState extends State<FoodHomeScreen> {
                 ],
               ),
               onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const NotificationsScreen())),
+                  MaterialPageRoute(
+                      builder: (_) => const NotificationsScreen(
+                          category: 'food'))),
             ),
             const SizedBox(width: 10),
             _HeaderLink(

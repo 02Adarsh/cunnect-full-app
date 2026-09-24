@@ -993,24 +993,27 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
             ],
           ),
           const SizedBox(height: 14),
+          // ⭐ v84: the QR builds itself — no "SHOW PAYMENT QR" button,
+          // exactly like the food and hostel checkouts.
           Center(
             child: _qr == null
-                ? SizedBox(
-                    height: 48,
-                    child: OutlinedButton.icon(
-                      onPressed: _qrLoading ? null : () => _loadQr(amount),
-                      icon: const Icon(Icons.qr_code_2_rounded, size: 18),
-                      label: Text(
-                          _qrLoading ? 'GENERATING…' : 'SHOW PAYMENT QR',
-                          style: const TextStyle(
-                              fontSize: 12.5, fontWeight: FontWeight.w800)),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: AppColors.red),
-                        foregroundColor: AppColors.red,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: _qrLoading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                                color: AppColors.red, strokeWidth: 2))
+                        : TextButton.icon(
+                            onPressed: () => _loadQr(amount),
+                            icon: const Icon(Icons.refresh_rounded,
+                                size: 15, color: Color(0xFF9E9E9E)),
+                            label: const Text('Tap to build the QR again',
+                                style: TextStyle(
+                                    color: Color(0xFF9E9E9E),
+                                    fontSize: 11.5)),
+                          ),
                   )
                 : _qrBlock(_qr!),
           ),

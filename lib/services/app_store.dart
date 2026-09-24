@@ -1136,7 +1136,8 @@ class AppStore extends ChangeNotifier {
   }
 
   /// ⭐ local (client-side) notification — UMS attendance / vendor new order
-  void addLocalNotification(String title, String message) {
+  void addLocalNotification(String title, String message,
+      {String category = 'food'}) {
     final isVendor = title.toLowerCase().contains('new order');
     // ⭐ NO on-screen popup/toast for the vendor — only the system
     // notification (with sound, shown by the fcm.dart poll) + bell list.
@@ -1148,7 +1149,8 @@ class AppStore extends ChangeNotifier {
         title: title,
         message: message,
         isRead: false,
-        createdAt: DateTime.now());
+        createdAt: DateTime.now(),
+        category: category);
     // vendor local alerts go to the vendor list, the rest to the student list
     (isVendor ? _vendorNotifications : _notifications).insert(0, n);
     notifyListeners();

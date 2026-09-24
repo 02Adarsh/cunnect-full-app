@@ -9,7 +9,12 @@ class NotificationsScreen extends StatefulWidget {
   /// ⭐ if opened from the vendor portal, show vendor notifications only
   final bool forVendor;
 
-  const NotificationsScreen({super.key, this.forVendor = false});
+  /// ⭐ v84: when set, only rows of this category are listed — the food
+  /// bell passes 'food' so ride / auto / print / hostel rows stay out.
+  final String? category;
+
+  const NotificationsScreen(
+      {super.key, this.forVendor = false, this.category});
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -39,7 +44,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final items = store.notificationsFor(_userId);
+    final all = store.notificationsFor(_userId);
+    final items = category == null
+        ? all
+        : [for (final n in all) if (n.category == category) n];
 
     return Scaffold(
       backgroundColor: AppColors.page,

@@ -95,6 +95,8 @@ class _OrderCard extends StatelessWidget {
         return const Color(0xFF7ED98B);
       case 'cancelled':
         return AppColors.red;
+      // ⭐ v84: the delivery has started — the OTP is live
+      case 'out_for_delivery':
       case 'accepted':
         return const Color(0xFF38BDF8);
       default:
@@ -108,6 +110,8 @@ class _OrderCard extends StatelessWidget {
         return 'DELIVERED';
       case 'cancelled':
         return 'CANCELLED / REJECTED';
+      case 'out_for_delivery':
+        return 'OUT FOR DELIVERY';
       case 'accepted':
         return 'ACCEPTED';
       default:
@@ -186,7 +190,10 @@ class _OrderCard extends StatelessWidget {
                 border: Border.all(color: const Color(0x80F10B1D)),
               ),
               child: Column(children: [
-                const Text('Show this OTP to collect your order',
+                Text(
+                    _status == 'out_for_delivery'
+                        ? 'He is on the way — show this OTP at the door'
+                        : 'Show this OTP to collect your order',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                         color: Color(0xFFFFB0B7),

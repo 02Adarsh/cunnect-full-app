@@ -389,7 +389,9 @@ class VegMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isVeg ? const Color(0xFFF10B1D) : const Color(0xFFD32F2F);
+    // ⭐ v84: VEG is GREEN, NON-VEG is RED (it was red for both).
+    final color =
+        isVeg ? const Color(0xFF0F8A3C) : const Color(0xFFD32F2F);
     return Container(
       width: size,
       height: size,

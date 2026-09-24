@@ -1402,9 +1402,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       );
     }
     return Column(children: [
-      // ⭐ v81: AUTO partners are managed right here, with every other
-      // vendor — their cards below open the AUTO portal.
-      _autoStrip(),
+      // ⭐ v84: no AUTO strip above the cards — the swipe row is back to
+      // what it was. AUTO partners are managed from the 🛺 button here.
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
         child: Row(children: [
@@ -1412,6 +1411,25 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           const SizedBox(width: 6),
           Text('Swipe through your ${_vendors.length} vendor portals',
               style: const TextStyle(color: AppColors.muted, fontSize: 10.5)),
+          const Spacer(),
+          InkWell(
+            onTap: _showAutoSheet,
+            borderRadius: BorderRadius.circular(7),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(color: const Color(0x59F10B1D)),
+                color: const Color(0x1AF10B1D),
+              ),
+              child: const Text('🛺 AUTO',
+                  style: TextStyle(
+                      color: Color(0xFFFFABB2),
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: .6)),
+            ),
+          ),
         ]),
       ),
       Expanded(
@@ -1799,6 +1817,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       title = (o['order_no'] ?? '') as String;
       subtitle =
           '${vendor.isEmpty ? '' : '$vendor · '}${o['recipient_name']} · ${o['recipient_mobile']}';
+      total = (o['total'] ?? 0) as num;
+    } else if (_orderKind == 'ride') {
+      // ⭐ v84: rides sit in the Orders tabs like every other store.
+      title = (o['order_no'] ?? 'Ride') as String;
+      subtitle = '${o['customer_name'] ?? ''}'
+          '${vendor.isEmpty ? '' : ' · $vendor'}';
       total = (o['total'] ?? 0) as num;
     } else {
       title = (o['order_number'] ?? '') as String;
