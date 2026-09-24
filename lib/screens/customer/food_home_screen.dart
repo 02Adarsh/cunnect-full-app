@@ -135,7 +135,7 @@ class _FoodHomeScreenState extends State<FoodHomeScreen> {
                 clipBehavior: Clip.none,
                 children: [
                   const Icon(Icons.notifications_outlined,
-                      size: 18, color: Color(0xFFF5F5F5)),
+                      size: 18, color: Color(0xFFE8B84B)),
                   if (unread > 0)
                     Positioned(
                       top: -4,
@@ -750,7 +750,7 @@ class _FoodItemRow extends StatelessWidget {
   void _showDetails(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF161616),
+      backgroundColor: const Color(0xFF101010),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => SafeArea(

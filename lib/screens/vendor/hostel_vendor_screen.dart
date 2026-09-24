@@ -25,13 +25,13 @@ class _HostelVendorScreenState extends State<HostelVendorScreen> {
   Color _statusColor(String s) {
     switch (s) {
       case 'accepted':
-        return const Color(0xFFC9C9C9);
+        return const Color(0xFF38BDF8);
       case 'delivered':
-        return const Color(0xFFF5F5F5);
+        return const Color(0xFF7ED98B);
       case 'cancelled':
         return const Color(0xFFF10B1D);
       default:
-        return const Color(0xFFF5F5F5);
+        return const Color(0xFFFFD34D);
     }
   }
 
@@ -94,7 +94,7 @@ class _HostelVendorScreenState extends State<HostelVendorScreen> {
                 style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFFF5F5F5))),
+                    color: Color(0xFFFFD34D))),
             const Spacer(),
             Text('${o['created_at']}',
                 style:
@@ -153,7 +153,7 @@ class _HostelVendorScreenState extends State<HostelVendorScreen> {
             ),
             const Spacer(),
             if (status == 'pending')
-              _btn('ACCEPT', const Color(0xFFF5F5F5), () async {
+              _btn('ACCEPT', const Color(0xFF16A34A), () async {
                 await store.vendorHostelStatus(o['id'] as int, 'accepted');
                 await store.loadVendorHostelOrders();
               }),

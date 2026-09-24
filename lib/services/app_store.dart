@@ -3581,6 +3581,23 @@ class AppStore extends ChangeNotifier {
   List<Map<String, dynamic>> _autoHistory = [];
   List<Map<String, dynamic>> get autoHistory => _autoHistory;
 
+  /// ⭐ v83: the STUDENT's own AUTO calls — shown in My Orders → RIDE.
+  Future<void> loadMyAutoCalls() async {
+    if (ApiConfig.studentToken == null) return;
+    try {
+      final r = await api.get('/api/ride/auto/my-calls/',
+          token: ApiConfig.studentToken);
+      final d = api.dataOf(r);
+      _myAutoCalls = [
+        for (final c in (d['calls'] as List? ?? [])) Map<String, dynamic>.from(c)
+      ];
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  List<Map<String, dynamic>> _myAutoCalls = [];
+  List<Map<String, dynamic>> get myAutoCalls => _myAutoCalls;
+
   // ---------------- admin: the AUTO portal from the panel ----------------
 
   Future<void> loadAdminAutoPartners() async {

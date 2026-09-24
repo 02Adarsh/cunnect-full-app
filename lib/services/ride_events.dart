@@ -269,7 +269,7 @@ class RideEvents {
         'completed' => 'Ride completed',
         'cancelled' => 'Ride cancelled',
         'sos' => 'SOS from a passenger',
-        'auto_call' => 'Auto needed at the main gate \U0001f6fa',
+        'auto_call' => 'Auto needed at the main gate 🛺',
         _ => 'CUnnect Ride',
       };
 

@@ -75,7 +75,7 @@ class _DeliveryDashboardScreenState extends State<DeliveryDashboardScreen> {
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
-                    color: store.deliveryAlertsEnabled ? const Color(0xFFF5F5F5) : const Color(0xFFEEEEEE),
+                    color: store.deliveryAlertsEnabled ? const Color(0xFF9BE7B4) : const Color(0xFFEEEEEE),
                   ),
                 ),
               ),
@@ -230,7 +230,7 @@ class _DeliveryDashboardScreenState extends State<DeliveryDashboardScreen> {
                                       const SizedBox(height: 3),
                                       const Text('Delivered ✓',
                                           style: TextStyle(
-                                              color: Color(0xFFF5F5F5),
+                                              color: Color(0xFF93E7AE),
                                               fontSize: 10,
                                               fontWeight: FontWeight.w800)),
                                     ],

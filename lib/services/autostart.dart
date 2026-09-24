@@ -18,7 +18,7 @@ Future<void> promptAutostartOnce(BuildContext context) async {
       context: context,
       barrierDismissible: true,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF161616),
+        backgroundColor: const Color(0xFF101010),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Allow notification permission',
             style: TextStyle(color: Colors.white, fontSize: 15)),

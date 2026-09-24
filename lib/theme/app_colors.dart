@@ -23,5 +23,5 @@ class AppColors {
   static const Color inputBorder = Color(0xFF343434);
   static const Color inputBg = Color(0xFF151515);
   static const Color footerBg = Color(0xFF171717);
-  static const Color gold = Color(0xFFC9C9C9);
+  static const Color gold = Color(0xFFD4C7A3);
 }

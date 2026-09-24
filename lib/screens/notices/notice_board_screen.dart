@@ -475,7 +475,7 @@ class FeedCard extends StatelessWidget {
     final store = context.read<AppStore>();
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF161616),
+      backgroundColor: const Color(0xFF101010),
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -972,7 +972,7 @@ class _CommentsOverlayState extends State<_CommentsOverlay> {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: const Color(0xFF101010),
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete comment?',

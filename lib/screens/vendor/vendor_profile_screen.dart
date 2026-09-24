@@ -216,7 +216,7 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
                         child: Text(
                             'Your icon is live on food cards.',
                             style: TextStyle(
-                                color: Color(0xFFF5F5F5), fontSize: 10)),
+                                color: Color(0xFF7ED98B), fontSize: 10)),
                       ),
                     const SizedBox(height: 8),
                     Row(children: [
@@ -250,7 +250,7 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
                         child: Text(
                             'Your uploaded QR is active at checkout.',
                             style: TextStyle(
-                                color: Color(0xFFF5F5F5), fontSize: 10)),
+                                color: Color(0xFF7ED98B), fontSize: 10)),
                       ),
                   ],
                 ),
@@ -295,8 +295,8 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(99),
-                        color: const Color(0x17F5F5F5),
-                        border: Border.all(color: const Color(0x6BF5F5F5)),
+                        color: const Color(0x1738B765),
+                        border: Border.all(color: const Color(0x6B38B765)),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,

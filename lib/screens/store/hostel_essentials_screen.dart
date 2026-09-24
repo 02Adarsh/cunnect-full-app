@@ -9,6 +9,7 @@ import '../../services/api_client.dart';
 import '../../services/app_store.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common.dart';
+import 'my_hostel_orders_screen.dart';
 
 /// ⭐ v60: Hostel Essentials store — product menu with expandable bars
 /// (name + MRP + add-to-cart), a live cart total, and the standard
@@ -289,6 +290,22 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                               fontSize: 13,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 1.5)),
+                      // ⭐ v83: My Orders sits top-right, exactly like the
+                      // printout section — status + the hand-over OTP.
+                      Positioned(
+                        right: -2,
+                        child: TextButton(
+                          onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const MyHostelOrdersScreen())),
+                          child: const Text('My Orders',
+                              style: TextStyle(
+                                  color: AppColors.red,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800)),
+                        ),
+                      ),
                     ]),
                   ),
                   // ⭐ v61: hero shows the VENDOR-controlled storefront —
@@ -512,7 +529,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                                     Icons
                                         .account_balance_wallet_outlined,
                                     size: 16,
-                                    color: Color(0xFFF5F5F5)),
+                                    color: Color(0xFFFFD34D)),
                                 const SizedBox(width: 9),
                                 Expanded(
                                   child: Column(
@@ -835,7 +852,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                         const SizedBox(width: 7),
                         Text('Only $stock left',
                             style: const TextStyle(
-                                color: Color(0xFFF5F5F5),
+                                color: Color(0xFFFFD34D),
                                 fontSize: 9.5,
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: .3)),
@@ -849,7 +866,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                   style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFFF5F5F5))),
+                      color: Color(0xFFFFD34D))),
               const SizedBox(width: 11),
               qty == 0
                   ? _AddButton(
@@ -1080,7 +1097,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                   style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFFF5F5F5))),
+                      color: Color(0xFFFFD34D))),
             ]),
           ),
         ],
@@ -1107,9 +1124,9 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
                 width: 84,
                 height: 84,
                 decoration: const BoxDecoration(
-                    shape: BoxShape.circle, color: Color(0x24F5F5F5)),
+                    shape: BoxShape.circle, color: Color(0x2416A34A)),
                 child: const Icon(Icons.check_circle,
-                    size: 46, color: Color(0xFFF5F5F5)),
+                    size: 46, color: Color(0xFF7ED98B)),
               ),
             ),
             const SizedBox(height: 16),
@@ -1122,7 +1139,7 @@ class _HostelEssentialsScreenState extends State<HostelEssentialsScreen> {
             Center(
               child: Text('Order No: ${o['order_no']}',
                   style: const TextStyle(
-                      color: Color(0xFFF5F5F5),
+                      color: Color(0xFFFFD34D),
                       fontSize: 13,
                       fontWeight: FontWeight.w700)),
             ),

@@ -126,15 +126,15 @@ class StatusChip extends StatelessWidget {
       case OrderStatus.pending:
         return const Color(0x80F10B1D);
       case OrderStatus.accepted:
-        return const Color(0x7AC9C9C9);
+        return const Color(0x7A4BA3FF);
       case OrderStatus.preparing:
         return const Color(0x80F10B1D);
       case OrderStatus.ready:
-        return const Color(0x80F5F5F5);
+        return const Color(0x8038B765);
       case OrderStatus.outForDelivery:
-        return const Color(0x7AC9C9C9);
+        return const Color(0x7A4BA3FF);
       case OrderStatus.completed:
-        return const Color(0x59F5F5F5);
+        return const Color(0x5938B765);
       case OrderStatus.rejected:
       case OrderStatus.cancelled:
         return const Color(0xFF4B4B4B);
@@ -146,14 +146,14 @@ class StatusChip extends StatelessWidget {
       case OrderStatus.pending:
         return const Color(0x1AF10B1D);
       case OrderStatus.accepted:
-        return const Color(0x1AC9C9C9);
+        return const Color(0x1A4BA3FF);
       case OrderStatus.preparing:
         return const Color(0x1AF10B1D);
       case OrderStatus.ready:
       case OrderStatus.completed:
-        return const Color(0x1AF5F5F5);
+        return const Color(0x1A38B765);
       case OrderStatus.outForDelivery:
-        return const Color(0x1AC9C9C9);
+        return const Color(0x1A4BA3FF);
       case OrderStatus.rejected:
       case OrderStatus.cancelled:
         return Colors.transparent;
@@ -165,14 +165,14 @@ class StatusChip extends StatelessWidget {
       case OrderStatus.pending:
         return const Color(0xFFFF9CA4);
       case OrderStatus.accepted:
-        return const Color(0xFFC9C9C9);
+        return const Color(0xFF9ECBFF);
       case OrderStatus.preparing:
-        return const Color(0xFFC9C9C9);
+        return const Color(0xFFFFD394);
       case OrderStatus.ready:
       case OrderStatus.completed:
-        return const Color(0xFFF5F5F5);
+        return const Color(0xFF9BE7B4);
       case OrderStatus.outForDelivery:
-        return const Color(0xFFC9C9C9);
+        return const Color(0xFF9ECBFF);
       case OrderStatus.rejected:
       case OrderStatus.cancelled:
         return const Color(0xFFAAAAAA);

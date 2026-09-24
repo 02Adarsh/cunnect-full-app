@@ -383,9 +383,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0x17F5F5F5),
+        color: const Color(0x1738B765),
         borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: const Color(0x6BF5F5F5)),
+        border: Border.all(color: const Color(0x6B38B765)),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Container(
@@ -500,10 +500,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 AppColors.red, Icons.podcasts_rounded),
             const SizedBox(width: 10),
             _metric('Impressions Today', _compact(s['impressions_today']),
-                const Color(0xFFF5F5F5), Icons.visibility_rounded),
+                const Color(0xFF6EA8FE), Icons.visibility_rounded),
             const SizedBox(width: 10),
             _metric('Traffic Today', _compact(s['traffic_today']),
-                const Color(0xFFC9C9C9), Icons.groups_rounded),
+                const Color(0xFFB58CFF), Icons.groups_rounded),
           ]),
           const SizedBox(height: 12),
           // ---- single horizontal period bar ----
@@ -519,8 +519,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               points: points,
               primaryKey: 'impressions',
               secondaryKey: 'traffic',
-              primaryColor: const Color(0xFFF5F5F5),
-              secondaryColor: const Color(0xFFC9C9C9),
+              primaryColor: const Color(0xFF6EA8FE),
+              secondaryColor: const Color(0xFFB58CFF),
               primaryLabel: 'Impressions',
               secondaryLabel: 'Traffic',
             ),
@@ -529,7 +529,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           // ---- transactions + revenue today ----
           Row(children: [
             _metric('Transactions Today', '${s['transactions_today'] ?? 0}',
-                const Color(0xFF9E9E9E), Icons.swap_horiz_rounded),
+                const Color(0xFFD9A94E), Icons.swap_horiz_rounded),
             const SizedBox(width: 10),
             _metric(
                 'Revenue Today',
@@ -545,11 +545,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 'Period total ₹${_compact(totals['revenue'])}'),
             child: Column(children: [
               _sourceRow('🍔  Food', (revBySource['food'] ?? 0),
-                  (totals['food'] ?? 0), const Color(0xFFF5F5F5)),
+                  (totals['food'] ?? 0), const Color(0xFF6EA8FE)),
               _sourceRow('🖨  Print', (revBySource['print'] ?? 0),
                   (totals['print'] ?? 0), const Color(0xFFFF9CA4)),
               _sourceRow('🛏  Hostel', (revBySource['hostel'] ?? 0),
-                  (totals['hostel'] ?? 0), const Color(0xFFC9C9C9)),
+                  (totals['hostel'] ?? 0), const Color(0xFFB58CFF)),
               const SizedBox(height: 8),
               _TrendBars(
                 points: points,
@@ -925,7 +925,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: const Color(0x66C9C9C9)),
+              border: Border.all(color: const Color(0x66D4C7A3)),
             ),
             child: const Text('CORE',
                 style: TextStyle(
@@ -941,7 +941,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             child: const Padding(
               padding: EdgeInsets.all(5),
               child: Icon(Icons.edit_outlined,
-                  size: 15, color: Color(0xFFC9C9C9)),
+                  size: 15, color: Color(0xFF9ECBFF)),
             ),
           ),
         if (onToggle != null)
@@ -1034,7 +1034,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF161616),
+      backgroundColor: const Color(0xFF101010),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => StatefulBuilder(
@@ -1205,41 +1205,72 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFF262626)),
       ),
-      child: Row(children: [
-        Container(
-          width: 32,
-          height: 32,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-              color: const Color(0x26F10B1D),
-              borderRadius: BorderRadius.circular(10)),
-          child: const Text('\U0001f6fa', style: TextStyle(fontSize: 15)),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name,
-                    style: const TextStyle(
-                        fontSize: 12.5, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 2),
-                Text(
-                    phone.isEmpty
-                        ? '$accepted accepted of $calls'
-                        : '$phone · $accepted accepted of $calls',
-                    style: const TextStyle(
-                        color: AppColors.muted, fontSize: 10.5)),
-              ]),
-        ),
-        Switch(
-          value: on,
-          activeColor: const Color(0xFFF10B1D),
-          onChanged: (v) async {
-            final ok = await _store.adminSetAutoPartner(vid, true, v);
-            _toast(ok ? null : 'Could not change his duty state.',
-                v ? 'He is ON DUTY.' : 'He is OFF DUTY.');
-          },
+      child: Column(children: [
+        Row(children: [
+          Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+                color: const Color(0x26F10B1D),
+                borderRadius: BorderRadius.circular(10)),
+            child: const Text('🛺', style: TextStyle(fontSize: 15)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name,
+                      style: const TextStyle(
+                          fontSize: 12.5, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text(
+                      phone.isEmpty
+                          ? '$accepted accepted of $calls'
+                          : '$phone · $accepted accepted of $calls',
+                      style: const TextStyle(
+                          color: AppColors.muted, fontSize: 10.5)),
+                ]),
+          ),
+          Switch(
+            value: on,
+            activeColor: const Color(0xFFF10B1D),
+            onChanged: (v) async {
+              final ok = await _store.adminSetAutoPartner(vid, true, v);
+              _toast(ok ? null : 'Could not change his duty state.',
+                  v ? 'He is ON DUTY.' : 'He is OFF DUTY.');
+            },
+          ),
+        ]),
+        // ⭐ v83: his portal opens from here — same as food / ride.
+        const SizedBox(height: 6),
+        SizedBox(
+          width: double.infinity,
+          height: 34,
+          child: OutlinedButton.icon(
+            onPressed: () async {
+              final err = await _store.adminOpenVendorPortal({'id': vid});
+              if (err != null) {
+                _toast(err, '');
+                return;
+              }
+              if (!mounted) return;
+              await Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const _AdminVendorPortalWrapper()));
+              _store.adminCloseVendorPortal();
+            },
+            icon: const Icon(Icons.open_in_new_rounded, size: 13),
+            label: const Text('OPEN AUTO PORTAL',
+                style:
+                    TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFFFFABB2),
+              side: const BorderSide(color: Color(0x80F10B1D)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
         ),
       ]),
     );
@@ -1398,7 +1429,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     final type = (v['vendor_type'] ?? 'food') as String;
     final (icon, typeColor) = switch (type) {
       'printout' => ('🖨', const Color(0xFFFF9CA4)),
-      'hostel' => ('🛏', const Color(0xFFC9C9C9)),
+      'hostel' => ('🛏', const Color(0xFFB58CFF)),
       // ⭐ v66: ride partners (drivers) get their own console.
       'ride' => ('🛺', const Color(0xFFF5F5F5)),
       // ⭐ v81: AUTO partners open their own AUTO portal.
@@ -1826,7 +1857,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   Text(status.toUpperCase(),
                       style: const TextStyle(
-                          color: Color(0xFF9E9E9E),
+                          color: Color(0xFFD9A94E),
                           fontSize: 8.5,
                           fontWeight: FontWeight.w800)),
                   const SizedBox(width: 3),
@@ -1863,7 +1894,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     };
     await showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF161616),
+      backgroundColor: const Color(0xFF101010),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => SafeArea(
@@ -2017,7 +2048,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               side: BorderSide(
                   color: active
                       ? const Color(0x8CF10B1D)
-                      : const Color(0x6BF5F5F5)),
+                      : const Color(0x6B38B765)),
               shape:
                   RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -2253,7 +2284,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     IconButton(
                       onPressed: () => _showBannerForm(banner: b as Map),
                       icon: const Icon(Icons.edit_outlined,
-                          size: 16, color: Color(0xFFC9C9C9)),
+                          size: 16, color: Color(0xFF9ECBFF)),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(
                           minWidth: 34, minHeight: 34),
@@ -2411,9 +2442,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                             horizontal: 7, vertical: 3),
                         decoration: BoxDecoration(
                           color: switch ('${r['status']}') {
-                            'resolved' => const Color(0x17F5F5F5),
-                            'in_progress' => const Color(0x17F5F5F5),
-                            _ => const Color(0x179E9E9E),
+                            'resolved' => const Color(0x1738B765),
+                            'in_progress' => const Color(0x176EA8FE),
+                            _ => const Color(0x17D9A94E),
                           },
                           borderRadius: BorderRadius.circular(99),
                         ),
@@ -2422,8 +2453,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                             style: TextStyle(
                                 color: switch ('${r['status']}') {
                                   'resolved' => const Color(0xFFF5F5F5),
-                                  'in_progress' => const Color(0xFFC9C9C9),
-                                  _ => const Color(0xFF9E9E9E),
+                                  'in_progress' => const Color(0xFF9ECBFF),
+                                  _ => const Color(0xFFD9A94E),
                                 },
                                 fontSize: 8,
                                 fontWeight: FontWeight.w800)),
@@ -2449,7 +2480,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF161616),
+      backgroundColor: const Color(0xFF101010),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => Padding(
@@ -2579,7 +2610,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF161616),
+      backgroundColor: const Color(0xFF101010),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => StatefulBuilder(
@@ -2755,7 +2786,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF161616),
+      backgroundColor: const Color(0xFF101010),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => StatefulBuilder(
@@ -2839,7 +2870,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF161616),
+      backgroundColor: const Color(0xFF101010),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => StatefulBuilder(
@@ -2861,7 +2892,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                         horizontal: 7, vertical: 3),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0x66C9C9C9)),
+                      border: Border.all(color: const Color(0x66D4C7A3)),
                     ),
                     child: const Text('CORE',
                         style: TextStyle(
@@ -2977,7 +3008,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF161616),
+      backgroundColor: const Color(0xFF101010),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => StatefulBuilder(
@@ -3100,7 +3131,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF161616),
+      backgroundColor: const Color(0xFF101010),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => StatefulBuilder(
@@ -3239,7 +3270,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF161616),
+      backgroundColor: const Color(0xFF101010),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => StatefulBuilder(
@@ -3449,7 +3480,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: const Color(0xFF101010),
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Are you sure?',

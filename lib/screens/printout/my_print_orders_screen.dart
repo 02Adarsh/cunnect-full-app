@@ -91,9 +91,9 @@ class _OrderCard extends StatelessWidget {
       case PrintOrderStatus.rejected:
         return AppColors.red;
       case PrintOrderStatus.pending:
-        return const Color(0xFF9E9E9E);
+        return const Color(0xFFD9A94E);
       default:
-        return const Color(0xFFF5F5F5);
+        return const Color(0xFF6EA8FE);
     }
   }
 

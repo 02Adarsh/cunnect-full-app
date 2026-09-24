@@ -177,7 +177,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF161616),
+        backgroundColor: const Color(0xFF101010),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: Row(children: [
           Text('${r['vehicle_icon']}', style: const TextStyle(fontSize: 22)),
@@ -1585,7 +1585,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
     final ok = await showDialog<bool>(
           context: context,
           builder: (_) => AlertDialog(
-            backgroundColor: const Color(0xFF121212),
+            backgroundColor: const Color(0xFF101010),
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18)),
             title: const Text('Balance received?',
@@ -2538,7 +2538,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
     final ok = await showDialog<bool>(
           context: context,
           builder: (_) => AlertDialog(
-            backgroundColor: const Color(0xFF161616),
+            backgroundColor: const Color(0xFF101010),
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: const Text('Log out?',
@@ -2804,7 +2804,7 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
         }
 
         return AlertDialog(
-          backgroundColor: const Color(0xFF161616),
+          backgroundColor: const Color(0xFF101010),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Text(kind == 'daily' ? 'Block a weekly slot' : 'Block a date',

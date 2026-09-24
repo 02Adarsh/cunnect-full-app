@@ -295,7 +295,7 @@ class _RideLiveMapScreenState extends State<RideLiveMapScreen> {
           height: 26,
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0xFFF5F5F5),
+              color: const Color(0xFF3B82F6),
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white, width: 2),
             ),

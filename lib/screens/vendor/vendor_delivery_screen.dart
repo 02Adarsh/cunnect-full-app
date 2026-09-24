@@ -88,7 +88,7 @@ class VendorDeliveryScreen extends StatelessWidget {
                       _DeliveryOrderCard(
                         order: order,
                         statusLabel: 'Ready for Delivery',
-                        statusColor: const Color(0xFFC9C9C9),
+                        statusColor: const Color(0xFFFFD394),
                         statusBorder: const Color(0x80F10B1D),
                         address: true,
                         action: _StartDeliveryButton(orderId: order.id),
@@ -105,8 +105,8 @@ class VendorDeliveryScreen extends StatelessWidget {
                       _DeliveryOrderCard(
                         order: order,
                         statusLabel: 'Out for Delivery',
-                        statusColor: const Color(0xFFC9C9C9),
-                        statusBorder: const Color(0x80C9C9C9),
+                        statusColor: const Color(0xFF9ECBFF),
+                        statusBorder: const Color(0x804BA3FF),
                         address: true,
                         note:
                             'The 4-digit OTP is shown on the customer Food Dashboard. Enter it to complete the delivery.',
@@ -124,8 +124,8 @@ class VendorDeliveryScreen extends StatelessWidget {
                       _DeliveryOrderCard(
                         order: order,
                         statusLabel: 'Delivered ✓',
-                        statusColor: const Color(0xFFF5F5F5),
-                        statusBorder: const Color(0x80F5F5F5),
+                        statusColor: const Color(0xFF9BE7B4),
+                        statusBorder: const Color(0x8038B765),
                         showDeliveredAt: true,
                       ),
                   ],
@@ -269,7 +269,7 @@ class _DeliveryOrderCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 10),
               child: Text(note!,
-                  style: const TextStyle(color: Color(0xFFC9C9C9), fontSize: 10.5, height: 1.4)),
+                  style: const TextStyle(color: Color(0xFFA7D8FF), fontSize: 10.5, height: 1.4)),
             ),
           if (action != null) action!,
         ],

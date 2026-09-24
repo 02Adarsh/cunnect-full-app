@@ -104,12 +104,13 @@ class RideEventPopup extends StatelessWidget {
 
   static bool _open = false;
 
-  // ⭐ v77: red / black / white only — no green or neon anywhere.
+  // ⭐ v83: the popup is RED + BLACK — the good news is red, the bad
+  // news is grey, and everything sits on black.
   Color get _tint => switch (event) {
         'accepted' || 'payment_done' || 'balance_done' || 'started' ||
         'balance_paid' || 'balance_cleared' || 'paid' =>
-          RideColors.white,
-        'arrived' || 'completed' => RideColors.soft,
+          AppColors.red,
+        'arrived' || 'completed' => const Color(0xFFFFABB2),
         'rejected' || 'no_rider' || 'cancelled' => AppColors.muted,
         'sos' || 'new_request' => AppColors.red,
         _ => AppColors.red,
@@ -263,7 +264,7 @@ class RideEventPopup extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text('₹$balance',
                         style: const TextStyle(
-                            color: RideColors.amber,
+                            color: const Color(0xFFFFABB2),
                             fontSize: 17,
                             fontWeight: FontWeight.w800)),
                   ],
@@ -279,7 +280,7 @@ class RideEventPopup extends StatelessWidget {
         decoration: BoxDecoration(
           color: const Color(0xFF0C0C0C),
           borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: RideColors.sky.withOpacity(.35)),
+          border: Border.all(color: AppColors.red.withOpacity(.35)),
         ),
         child: Column(
           children: [
@@ -297,7 +298,7 @@ class RideEventPopup extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: const Color(0xFF1A1A1A),
                       borderRadius: BorderRadius.circular(11),
-                      border: Border.all(color: RideColors.sky.withOpacity(.4)),
+                      border: Border.all(color: AppColors.red.withOpacity(.4)),
                     ),
                     child: Text(ch,
                         style: const TextStyle(
@@ -344,8 +345,8 @@ class RideEventPopup extends StatelessWidget {
                         style: TextStyle(
                             fontSize: 11.5, fontWeight: FontWeight.w800)),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: RideColors.sky,
-                      side: BorderSide(color: RideColors.sky.withOpacity(.5)),
+                      foregroundColor: const Color(0xFFFFABB2),
+                      side: const BorderSide(color: Color(0x80F10B1D)),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(11)),
                     ),

@@ -1,18 +1,44 @@
-CUnnect v82 — the AUTO portal
+CUnnect v83 — the colour fix + orders in one place
 ==========================================================================
-(Cumulative: includes v61-v81.)
+(Cumulative: includes v61-v82.)
 
-v82 is the same code as v81 with the app version bumped to 82.
-(The AUTO manager sheet on the Vendors page got its helper widgets
-re-added — the first v82 upload would not compile without them.)
-Everything below shipped in v81 — one migration to run.
+NO NEW MIGRATION THIS TIME — nothing was added to the database.
+(If you never ran v81: that release needs `python manage.py migrate`
+for ride.0012. v83 itself adds no tables.)
 
-
-ONE NEW MIGRATION THIS TIME (must run it once):
-  python manage.py migrate      (ride.0012 = AutoCall table + auto_online)
 
 =================================================================
-1) AUTO IS ITS OWN PORTAL NOW                           (your request)
+0) WHAT v83 CHANGES
+=================================================================
+1. THE YELLOW IS BACK. A v78 sweep had repainted the gold/amber
+   accents white (#D4C7A3 -> #C9C9C9, #FFD34D -> #F5F5F5, the food
+   bell #E8B84B -> #F5F5F5). Every one of those 133 lines has been
+   put back to the colour it had before — the splash tagline, the
+   login screen, the store, the food bell icon, the status chips.
+2. POPUPS ARE RED + BLACK. Every dialog / bottom sheet in the app
+   now paints on #101010 with a red border, and the ride/event
+   popup uses red for good news and grey for bad. No green, no blue.
+3. FOOD NOTIFICATIONS SHOW FOOD ONLY. /api/food/notifications/ now
+   filters category="food" — print, ride and general rows stay out.
+4. MY ORDERS HAS A RIDE TAB. ALL · FOOD · PRINT · HOSTEL · RIDE.
+   The RIDE tab lists past rides AND the student's AUTO calls
+   (new endpoint /api/ride/auto/my-calls/). ALL shows everything.
+5. HOSTEL ESSENTIALS HAS "MY ORDERS" at the top right — the same
+   page the printout section has: status (waiting / accepted /
+   delivered / cancelled) and the hand-over OTP to show at the door.
+6. ADMIN > VENDORS: every AUTO partner card now has an
+   "OPEN AUTO PORTAL" button — it opens his portal exactly like
+   "Open Vendor Portal" does for food / ride / print vendors.
+7. Two stray "\U0001f6fa" strings (they printed as "U0001f6fa")
+   are now the real AUTO emoji.
+
+Everything below shipped in v81 / v82 — kept for reference.
+
+=================================================================
+1) AUTO IS ITS OWN PORTAL NOW                           (v81)
+=================================================================
+=================================================================
+1) AUTO IS ITS OWN PORTAL NOW                           (v81)
 =================================================================
 An auto partner is no longer a car partner with a switch. AUTO is a
 separate ACCOUNT TYPE with its own portal:

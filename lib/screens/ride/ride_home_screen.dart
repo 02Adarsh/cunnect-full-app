@@ -1237,7 +1237,7 @@ class _RideHomeScreenState extends State<RideHomeScreen>
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF121212),
+        backgroundColor: const Color(0xFF101010),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: const Text('Save a place',
             style: TextStyle(color: Colors.white, fontSize: 16)),

@@ -509,7 +509,7 @@ class _PrintVendorShopScreenState extends State<PrintVendorShopScreen> {
                         color: _totalPages == 0
                             ? const Color(0xFFAAAAAA)
                             : valid
-                                ? const Color(0xFFF5F5F5)
+                                ? const Color(0xFFA8EBBA)
                                 : const Color(0xFFFF9DA5),
                         fontSize: 9.5,
                         height: 1.4),
@@ -602,7 +602,7 @@ class _PrintVendorShopScreenState extends State<PrintVendorShopScreen> {
                               const Icon(
                                   Icons.account_balance_wallet_outlined,
                                   size: 16,
-                                  color: Color(0xFFF5F5F5)),
+                                  color: Color(0xFFFFD34D)),
                               const SizedBox(width: 9),
                               Expanded(
                                 child: Column(
@@ -762,8 +762,8 @@ class _PrintVendorShopScreenState extends State<PrintVendorShopScreen> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-            color: ok ? const Color(0x59F5F5F5) : const Color(0x80F10B1D)),
-        color: ok ? const Color(0x14F5F5F5) : const Color(0x1AF10B1D),
+            color: ok ? const Color(0x5938B765) : const Color(0x80F10B1D)),
+        color: ok ? const Color(0x1438B765) : const Color(0x1AF10B1D),
       ),
       child: Row(
         children: [
@@ -782,7 +782,7 @@ class _PrintVendorShopScreenState extends State<PrintVendorShopScreen> {
                 Text(sub,
                     style: TextStyle(
                         color: ok
-                            ? const Color(0xFFF5F5F5)
+                            ? const Color(0xFFA8EBBA)
                             : const Color(0xFFFFABB2),
                         fontSize: 10)),
               ],

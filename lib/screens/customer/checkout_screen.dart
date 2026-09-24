@@ -137,9 +137,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   margin: const EdgeInsets.only(top: 9),
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
-                    color: const Color(0x1AF5F5F5),
+                    color: const Color(0x1A3DB260),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0x6BF5F5F5)),
+                    border: Border.all(color: const Color(0x6B3DB260)),
                   ),
                   child: Row(
                     children: [
@@ -153,7 +153,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                 text:
                                     ' applied — you save ₹${store.couponDiscount.round()}'),
                           ]),
-                          style: const TextStyle(color: Color(0xFFF5F5F5), fontSize: 11.5),
+                          style: const TextStyle(color: Color(0xFF9BE1AD), fontSize: 11.5),
                         ),
                       ),
                       GestureDetector(
@@ -238,7 +238,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               if (applied != null)
                 _priceRow('Coupon discount (${applied.code})',
                     '− ₹${store.couponDiscount.round()}',
-                    valueColor: const Color(0xFFF5F5F5)),
+                    valueColor: const Color(0xFF9BE1AD)),
               _priceRow('Delivery fee', 'FREE'),
               Container(
                 margin: const EdgeInsets.only(top: 3),
@@ -299,7 +299,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                       fontSize: 12,
-                      color: hasApplied ? const Color(0xFFF5F5F5) : AppColors.placeholder),
+                      color: hasApplied ? const Color(0xFF9BE1AD) : AppColors.placeholder),
                 ),
                 items: [
                   for (final coupon in available)
@@ -633,7 +633,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
               child: Row(children: [
                 const Icon(Icons.account_balance_wallet_outlined,
-                    size: 16, color: Color(0xFFF5F5F5)),
+                    size: 16, color: Color(0xFFFFD34D)),
                 const SizedBox(width: 9),
                 Expanded(
                   child: Column(

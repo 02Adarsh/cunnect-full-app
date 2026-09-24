@@ -139,11 +139,11 @@ class _PrintVendorDashboardScreenState
             child: Row(children: [
               Expanded(
                   child:
-                      _metric('Pending', '$pending', const Color(0xFF9E9E9E))),
+                      _metric('Pending', '$pending', const Color(0xFFD9A94E))),
               const SizedBox(width: 10),
               Expanded(
                   child: _metric(
-                      'In Progress', '$active', const Color(0xFFF5F5F5))),
+                      'In Progress', '$active', const Color(0xFF6EA8FE))),
               const SizedBox(width: 10),
               Expanded(child: _metric('Completed', '$done', AppColors.red)),
             ]),
@@ -332,12 +332,12 @@ class _OrderCard extends StatelessWidget {
   Color get _statusColor {
     switch (order.status) {
       case PrintOrderStatus.pending:
-        return const Color(0xFF9E9E9E);
+        return const Color(0xFFD9A94E);
       case PrintOrderStatus.accepted:
       case PrintOrderStatus.printing:
-        return const Color(0xFFF5F5F5);
+        return const Color(0xFF6EA8FE);
       case PrintOrderStatus.ready:
-        return const Color(0xFFC9C9C9);
+        return const Color(0xFFB58CFF);
       case PrintOrderStatus.completed:
         return const Color(0xFFF5F5F5);
       case PrintOrderStatus.rejected:
@@ -486,7 +486,7 @@ class _OrderCard extends StatelessWidget {
                           : order.studentPhone)
                       : 'Visible after you accept the order',
                   valueColor: accepted && order.studentPhone.isNotEmpty
-                      ? const Color(0xFFF5F5F5)
+                      ? const Color(0xFFA8EBBA)
                       : null,
                   onTap: accepted && order.studentPhone.isNotEmpty
                       ? () => openExternalUrl('tel:${order.studentPhone}')
@@ -742,7 +742,7 @@ class _OrderCard extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                       decoration:
                           onTap != null ? TextDecoration.underline : null,
-                      decorationColor: const Color(0xFFF5F5F5))),
+                      decorationColor: const Color(0xFFA8EBBA))),
             ),
           ),
         ],
@@ -1102,7 +1102,7 @@ class _UpiPanelState extends State<_UpiPanel> {
             const Padding(
               padding: EdgeInsets.only(top: 7),
               child: Text('Your uploaded QR is active at checkout.',
-                  style: TextStyle(color: Color(0xFFF5F5F5), fontSize: 10)),
+                  style: TextStyle(color: Color(0xFF7ED98B), fontSize: 10)),
             ),
         ],
       ),
@@ -1231,8 +1231,8 @@ class _PrintProfileTabState extends State<_PrintProfileTab> {
                   const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(99),
-                color: const Color(0x17F5F5F5),
-                border: Border.all(color: const Color(0x6BF5F5F5)),
+                color: const Color(0x1738B765),
+                border: Border.all(color: const Color(0x6B38B765)),
               ),
               child: const Row(mainAxisSize: MainAxisSize.min, children: [
                 _GlowDot(),

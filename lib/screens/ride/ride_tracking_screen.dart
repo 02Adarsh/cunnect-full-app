@@ -249,7 +249,8 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
     final okCancel = await showDialog<bool>(
           context: context,
           builder: (_) => AlertDialog(
-            backgroundColor: const Color(0xFF111111),
+            backgroundColor: const Color(0xFF101010),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Color(0x59F10B1D))),
             title: const Text('Cancel this ride?',
                 style: TextStyle(color: Colors.white, fontSize: 16)),
             content: const Text(
@@ -1660,7 +1661,7 @@ class _RideTrackingScreenState extends State<RideTrackingScreen> {
     final ok = await showDialog<bool>(
           context: context,
           builder: (_) => AlertDialog(
-            backgroundColor: const Color(0xFF121212),
+            backgroundColor: const Color(0xFF101010),
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
             title: const Text('Send an SOS?',

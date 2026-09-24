@@ -262,7 +262,7 @@ class _UmsLoginScreenState extends State<UmsLoginScreen> {
           ),
           const SizedBox(height: 12),
           _mono('YOUR CAMPUS. CONNECTED.', 9,
-              color: const Color(0xFFC9C9C9), w: FontWeight.w700, ls: 2),
+              color: const Color(0xFFD4C7A3), w: FontWeight.w700, ls: 2),
           const SizedBox(height: 29),
           const Text('LOGIN',
               style: TextStyle(
@@ -345,7 +345,7 @@ class _UmsLoginScreenState extends State<UmsLoginScreen> {
           ),
           const SizedBox(height: 12),
           _mono('YOUR CAMPUS. CONNECTED.', 9,
-              color: const Color(0xFFC9C9C9), w: FontWeight.w700, ls: 2),
+              color: const Color(0xFFD4C7A3), w: FontWeight.w700, ls: 2),
           const SizedBox(height: 29),
           if (_error != null) ...[
             Container(
@@ -387,18 +387,18 @@ class _UmsLoginScreenState extends State<UmsLoginScreen> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: const Color(0x1AF5F5F5),
-                    border: Border.all(color: const Color(0x4DF5F5F5)),
+                    color: const Color(0x1A16A34A),
+                    border: Border.all(color: const Color(0x4D16A34A)),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(Icons.check_circle,
-                          size: 10, color: Color(0xFFF5F5F5)),
+                          size: 10, color: Color(0xFF16A34A)),
                       const SizedBox(width: 5),
                       _mono('VERIFIED', 8,
-                          color: const Color(0xFFF5F5F5), ls: 1.6),
+                          color: const Color(0xFF16A34A), ls: 1.6),
                     ],
                   ),
                 ),
