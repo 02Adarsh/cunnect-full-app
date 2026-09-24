@@ -31,15 +31,7 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
     super.initState();
     // Same 3-second live status refresh as my_orders.html.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final store = context.read<AppStore>();
-      store.refreshCustomerOrders();
-      if (widget.mode != 'food') {
-        store.loadMyPrintOrders();
-        store.loadMyHostelOrders();
-        // ⭐ v83: rides and AUTO calls live here too.
-        store.loadRides();
-        store.loadMyAutoCalls();
-      }
+      _reloadAll(force: true);
     });
     _timer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
@@ -47,16 +39,25 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
       final store = context.read<AppStore>();
       store.refreshOrderStatuses();
       if (widget.mode == 'food') return;
-      // ⭐ v84: every 9s the other tabs are re-fetched too, so "ALL"
+      // ⭐ v85: every 6s the other tabs are re-fetched too, so "ALL"
       // really lists print, hostel, rides and auto calls as they happen.
       _ticks++;
-      if (_ticks % 3 == 0) {
-        store.loadMyPrintOrders();
-        store.loadMyHostelOrders();
-        store.loadRides();
-        store.loadMyAutoCalls();
+      if (_ticks % 2 == 0) {
+        _reloadAll();
       }
     });
+  }
+
+  void _reloadAll({bool force = false}) {
+    final store = context.read<AppStore>();
+    store.refreshCustomerOrders();
+    if (widget.mode == 'food' && !force) return;
+    if (widget.mode != 'food' || force) {
+      store.loadMyPrintOrders();
+      store.loadMyHostelOrders();
+      store.loadRides();
+      store.loadMyAutoCalls();
+    }
   }
 
   @override
@@ -71,7 +72,12 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
     final orders = store.customerOrders;
     final prints = store.printOrders;
     final hostels = store.myHostelOrders;
-    final rides = store.pastRides;
+    // ⭐ v85: active ride sits on top of the past list so ALL / RIDE
+    // never hide an in-progress booking.
+    final rides = <dynamic>[
+      if (store.activeRide != null) store.activeRide!,
+      ...store.pastRides,
+    ];
     final autos = store.myAutoCalls;
     final foodOnly = widget.mode == 'food';
     final showFood = foodOnly || _filter == 'all' || _filter == 'food';
@@ -279,7 +285,11 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
   Widget _tab(String label, String key) {
     final active = _filter == key;
     return InkWell(
-      onTap: () => setState(() => _filter = key),
+      onTap: () {
+        setState(() => _filter = key);
+        // ⭐ v85: switching tabs re-pulls so the list is never stale.
+        _reloadAll(force: true);
+      },
       borderRadius: BorderRadius.circular(9),
       child: Container(
         margin: const EdgeInsets.only(right: 7),

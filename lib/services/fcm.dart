@@ -18,9 +18,9 @@ final GlobalKey<NavigatorState> rootNavKey = GlobalKey<NavigatorState>();
 // ⭐ v5: the shrinker was stripping sound files from the APK (fixed via keep.xml) —
 // but the v4 channels were created on phones WITHOUT sound, hence a new id.
 // ⭐ v75: Android locks a channel's sound at creation time, so switching to
-// the Universfield tone needs fresh ids (v6) again.
-const kChannelUser = 'cunnect_ping_v6';
-const kChannelVendor = 'cunnect_alert_v6';
+// the Universfield tone needs fresh ids (v7) again.
+const kChannelUser = 'cunnect_ping_v7';
+const kChannelVendor = 'cunnect_alert_v7';
 
 /// ⭐ v75: notification tone used by BOTH channels.
 /// Drop a file with this name in android/app/src/main/res/raw/ to change it.
@@ -197,6 +197,7 @@ Future<void> initFcm() async {
       'cunnect_ping_v3', 'cunnect_alert_v3',
       'cunnect_ping_v4', 'cunnect_alert_v4',
       'cunnect_ping_v5', 'cunnect_alert_v5',
+      'cunnect_ping_v6', 'cunnect_alert_v6',
     ]) {
       try {
         await android?.deleteNotificationChannel(old);

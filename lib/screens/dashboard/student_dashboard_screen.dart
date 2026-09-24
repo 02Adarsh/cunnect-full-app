@@ -284,10 +284,31 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
               // still swipeable, so on a very narrow phone the last
               // icon is one small drag away instead of being squeezed.
               final itemWidth = box.maxWidth / 6;
-              final items = <({IconData icon, String label, VoidCallback onTap})>[
+              // ⭐ v85: Food / Store / Feed / Ride read their icon + lock
+              // flag from the admin Store sections. Locked = lock glyph,
+              // tap does nothing (no toast, no open).
+              final builtin = context.watch<AppStore>().builtinSections;
+              String emojiOf(String key, String fallback) {
+                final v = (builtin[key]?['icon'] ?? '').toString().trim();
+                return v.isEmpty ? fallback : v;
+              }
+              bool lockedOf(String key) =>
+                  (builtin[key]?['is_locked'] ?? false) as bool;
+              bool activeOf(String key) =>
+                  (builtin[key]?['is_active'] ?? true) as bool;
+              VoidCallback lockedTap() => () {};
+              final items = <({
+                IconData? icon,
+                String? emoji,
+                String label,
+                bool locked,
+                VoidCallback onTap
+              })>[
                 (
                   icon: Icons.school,
+                  emoji: null,
                   label: 'UMS',
+                  locked: false,
                   onTap: () {
                     final store = context.read<AppStore>();
                     final logged = (store.umsUid ?? '').isNotEmpty;
@@ -299,56 +320,54 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                 ),
                 (
                   icon: Icons.restaurant,
+                  emoji: emojiOf('food', '🍔'),
                   label: 'Food',
+                  locked: lockedOf('food') || !activeOf('food'),
                   onTap: () {
-                    // ⭐ v60: the CUnnect Food section is admin-controlled.
-                    final food =
-                        context.read<AppStore>().builtinSections['food'];
-                    final active = (food?['is_active'] ?? true) as bool;
-                    final soon = (food?['coming_soon'] ?? false) as bool;
-                    if (!active || soon) {
-                      showCunnectToast(
-                          context,
-                          soon
-                              ? 'CUnnect Food is coming soon.'
-                              : 'CUnnect Food is currently unavailable.');
-                      return;
-                    }
+                    if (lockedOf('food') || !activeOf('food')) return;
                     Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => const FoodHomeScreen()));
                   }
                 ),
                 (
                   icon: Icons.shopping_bag,
+                  emoji: emojiOf('store', '🛍'),
                   label: 'Store',
+                  locked: lockedOf('store') || !activeOf('store'),
                   onTap: () {
+                    if (lockedOf('store') || !activeOf('store')) return;
                     Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => const StoreHomeScreen()));
                   }
                 ),
                 (
                   icon: Icons.dynamic_feed_outlined,
+                  emoji: emojiOf('feed', '📰'),
                   label: 'Feed',
+                  locked: lockedOf('feed') || !activeOf('feed'),
                   onTap: () {
+                    if (lockedOf('feed') || !activeOf('feed')) return;
                     Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => const CunnectFeedScreen()));
                   }
                 ),
-                // ⭐ Ride — immediately to the LEFT of Partner.
                 (
                   icon: Icons.local_taxi_rounded,
+                  emoji: emojiOf('ride', '🚕'),
                   label: 'Ride',
+                  locked: lockedOf('ride') || !activeOf('ride'),
                   onTap: () {
+                    if (lockedOf('ride') || !activeOf('ride')) return;
                     Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => const RideHomeScreen()));
                   }
                 ),
                 (
                   icon: Icons.storefront,
+                  emoji: null,
                   label: 'Partner',
+                  locked: false,
                   onTap: () {
-                    // ⭐ if the vendor is logged in, skip the login —
-                    // go straight to their dashboard.
                     Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => ApiConfig.vendorToken != null
                             ? const VendorShell()
@@ -367,7 +386,13 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                       for (final item in items)
                         SizedBox(
                           width: itemWidth,
-                          child: _navItem(item.icon, item.label, item.onTap),
+                          child: _navItem(
+                            item.icon,
+                            item.label,
+                            item.locked ? () {} : item.onTap,
+                            emoji: item.emoji,
+                            locked: item.locked,
+                          ),
                         ),
                     ],
                   ),
@@ -380,8 +405,10 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
     );
   }
 
-  Widget _navItem(IconData icon, String label, VoidCallback onTap) {
-    return _NavItemTile(icon: icon, label: label, onTap: onTap);
+  Widget _navItem(IconData? icon, String label, VoidCallback onTap,
+      {String? emoji, bool locked = false}) {
+    return _NavItemTile(
+        icon: icon, emoji: emoji, label: label, locked: locked, onTap: onTap);
   }
 
   void _openProfilePanel() {
@@ -596,11 +623,17 @@ class _NoGlowScroll extends ScrollBehavior {
 
 /// ⭐ the icon turns RED instantly on tap and reverts on release — a hover-like flash
 class _NavItemTile extends StatefulWidget {
-  final IconData icon;
+  final IconData? icon;
+  final String? emoji;
   final String label;
+  final bool locked;
   final VoidCallback onTap;
   const _NavItemTile(
-      {required this.icon, required this.label, required this.onTap});
+      {required this.icon,
+      this.emoji,
+      required this.label,
+      this.locked = false,
+      required this.onTap});
   @override
   State<_NavItemTile> createState() => _NavItemTileState();
 }
@@ -644,16 +677,21 @@ class _NavItemTileState extends State<_NavItemTile> {
   /// the finger lands, whatever the arena decides later.
   @override
   Widget build(BuildContext context) {
-    final color =
-        _pressed ? const Color(0xFFF10B1D) : const Color(0xFFDDDDDD);
+    final locked = widget.locked;
+    final color = locked
+        ? const Color(0xFF666666)
+        : (_pressed ? const Color(0xFFF10B1D) : const Color(0xFFDDDDDD));
+    final emoji = (widget.emoji ?? '').trim();
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: (e) {
+        if (locked) return; // ⭐ v85: locked tiles never flash or open
         _start = e.position;
         _moved = false;
         _light();
       },
       onPointerMove: (e) {
+        if (locked) return;
         // scrolling the bar must NOT leave a tile stuck on red
         if (_start != null && (e.position - _start!).distance > 10) {
           _moved = true;
@@ -661,6 +699,7 @@ class _NavItemTileState extends State<_NavItemTile> {
         }
       },
       onPointerUp: (_) {
+        if (locked) return;
         final tapped = !_moved;
         _moved = false;
         _start = null;
@@ -668,6 +707,7 @@ class _NavItemTileState extends State<_NavItemTile> {
         if (tapped) widget.onTap();
       },
       onPointerCancel: (_) {
+        if (locked) return;
         _moved = false;
         _start = null;
         _dim();
@@ -677,7 +717,14 @@ class _NavItemTileState extends State<_NavItemTile> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(widget.icon, size: 24, color: color),
+            // ⭐ v85: lock glyph replaces the icon when the admin locks
+            // the section; otherwise the admin's emoji (or Material icon).
+            if (locked)
+              const Icon(Icons.lock_rounded, size: 22, color: Color(0xFF888888))
+            else if (emoji.isNotEmpty)
+              Text(emoji, style: const TextStyle(fontSize: 20, height: 1.1))
+            else
+              Icon(widget.icon ?? Icons.circle, size: 24, color: color),
             const SizedBox(height: 5),
             // ⭐ v70b: the label NEVER wraps — on narrow phones it
             // scales down instead of dropping a letter ("Partne/r").

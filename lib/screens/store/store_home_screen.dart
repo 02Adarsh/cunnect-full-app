@@ -49,6 +49,8 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
         (builtin[key]?['is_active'] ?? true) as bool;
     bool soonOf(String key) =>
         (builtin[key]?['coming_soon'] ?? false) as bool;
+    bool lockedOf(String key) =>
+        (builtin[key]?['is_locked'] ?? false) as bool;
     final printoutOn = _matches(printoutKw) && activeOf('printout');
     final fmcgOn = _matches(fmcgKw);
     final hostelOn = _matches(hostelKw) && activeOf('hostel');
@@ -180,8 +182,13 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
                 ((builtin['hostel']?['subtitle'] ?? '') as String).isNotEmpty
                     ? (builtin['hostel']?['subtitle'] ?? '') as String
                     : 'Mattress, pillow, bucket and everything your room needs.',
-                soonOf('hostel') ? 'COMING SOON' : null,
+                lockedOf('hostel')
+                    ? null
+                    : (soonOf('hostel') ? 'COMING SOON' : null),
+                locked: lockedOf('hostel'),
                 () {
+                  // ⭐ v85: locked = silent (no toast, no open)
+                  if (lockedOf('hostel')) return;
                   if (soonOf('hostel')) {
                     showCunnectToast(context,
                         'Hostel Essentials is coming soon on CUnnect.');
@@ -200,8 +207,12 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
                         .isNotEmpty
                     ? (builtin['printout']?['subtitle'] ?? '') as String
                     : 'PDF print, color print, photocopy, binding and lamination.',
-                soonOf('printout') ? 'COMING SOON' : null,
+                lockedOf('printout')
+                    ? null
+                    : (soonOf('printout') ? 'COMING SOON' : null),
+                locked: lockedOf('printout'),
                 () {
+                  if (lockedOf('printout')) return;
                   if (soonOf('printout')) {
                     showCunnectToast(context,
                         'Printout Services is coming soon on CUnnect.');
@@ -228,13 +239,21 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
                   (sec['icon'] ?? '🛍') as String,
                   (sec['title'] ?? '') as String,
                   (sec['subtitle'] ?? '') as String,
-                  (sec['coming_soon'] ?? false) as bool ? 'COMING SOON' : null,
-                  () => showCunnectToast(
-                      context,
-                      (sec['coming_soon'] ?? false) as bool
-                          ? '${sec['title']} is coming soon on CUnnect.'
-                          : '${sec['title']} — vendors are being onboarded. '
-                              'Stay tuned!'),
+                  ((sec['is_locked'] ?? false) as bool)
+                      ? null
+                      : ((sec['coming_soon'] ?? false) as bool
+                          ? 'COMING SOON'
+                          : null),
+                  locked: (sec['is_locked'] ?? false) as bool,
+                  () {
+                    if ((sec['is_locked'] ?? false) as bool) return;
+                    showCunnectToast(
+                        context,
+                        (sec['coming_soon'] ?? false) as bool
+                            ? '${sec['title']} is coming soon on CUnnect.'
+                            : '${sec['title']} — vendors are being onboarded. '
+                                'Stay tuned!');
+                  },
                 ),
           ],
         ),
@@ -243,9 +262,10 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
   }
 
   Widget _categoryCard(String icon, String title, String sub, String? badge,
-      VoidCallback onTap) {
+      VoidCallback onTap, {bool locked = false}) {
     return InkWell(
-      onTap: onTap,
+      // ⭐ v85: locked cards swallow the tap — no toast, no navigation.
+      onTap: locked ? null : onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
@@ -263,10 +283,16 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
               height: 46,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                color: const Color(0x2EF10B1D),
+                color: locked
+                    ? const Color(0x22FFFFFF)
+                    : const Color(0x2EF10B1D),
               ),
               alignment: Alignment.center,
-              child: Text(icon, style: const TextStyle(fontSize: 20)),
+              // ⭐ v85: lock glyph when the admin locks the section.
+              child: locked
+                  ? const Icon(Icons.lock_rounded,
+                      size: 20, color: Color(0xFFAAAAAA))
+                  : Text(icon, style: const TextStyle(fontSize: 20)),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -277,10 +303,29 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
                     children: [
                       Expanded(
                         child: Text(title,
-                            style: const TextStyle(
-                                fontSize: 13, fontWeight: FontWeight.w800)),
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                color: locked
+                                    ? const Color(0xFF888888)
+                                    : null)),
                       ),
-                      if (badge != null)
+                      if (locked)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0x55FFFFFF)),
+                          ),
+                          child: const Text('LOCKED',
+                              style: TextStyle(
+                                  color: Color(0xFFAAAAAA),
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1)),
+                        )
+                      else if (badge != null)
                         Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 7, vertical: 3),
@@ -299,8 +344,12 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
                   ),
                   const SizedBox(height: 5),
                   Text(sub,
-                      style: const TextStyle(
-                          color: AppColors.muted, fontSize: 11, height: 1.4)),
+                      style: TextStyle(
+                          color: locked
+                              ? const Color(0xFF666666)
+                              : AppColors.muted,
+                          fontSize: 11,
+                          height: 1.4)),
                 ],
               ),
             ),

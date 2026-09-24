@@ -740,7 +740,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           _panel(
             title: 'Store Sections',
             subtitle:
-                'You have total control — switch any section on/off, edit '
+                'You have total control — switch any section on/off, edit its icon, lock it, or mark it coming soon. Built-in (CORE) sections can '
                 'it, or mark it coming soon. Built-in (CORE) sections can '
                 'be edited and hidden too; they just cannot be deleted.',
             child: Column(children: [
@@ -754,6 +754,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       '${(grouped[sec['key']] ?? []).length} vendor(s)'
                       '${(sec['builtin'] ?? false) as bool ? ' · built-in' : ''}'
                       '${(sec['coming_soon'] ?? false) as bool ? ' · COMING SOON' : ''}'
+                      '${(sec['is_locked'] ?? false) as bool ? ' · LOCKED' : ''}'
                       '${(sec['is_active'] ?? true) as bool ? '' : ' · HIDDEN'}',
                   builtin: (sec['builtin'] ?? false) as bool,
                   onToggle: () async {
@@ -2807,6 +2808,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     final subtitle = TextEditingController();
     final icon = TextEditingController(text: '🛍');
     bool comingSoon = false;
+    bool isLocked = false;
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2846,7 +2848,27 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 Switch(
                   value: comingSoon,
                   activeColor: AppColors.red,
-                  onChanged: (v) => setSheet(() => comingSoon = v),
+                  onChanged: (v) => setSheet(() {
+                    comingSoon = v;
+                    if (v) isLocked = false;
+                  }),
+                ),
+              ]),
+              Row(children: [
+                const Expanded(
+                  child: Text('Lock (users cannot open)',
+                      style: TextStyle(
+                          color: Color(0xFFC3C3C3),
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700)),
+                ),
+                Switch(
+                  value: isLocked,
+                  activeColor: AppColors.red,
+                  onChanged: (v) => setSheet(() {
+                    isLocked = v;
+                    if (v) comingSoon = false;
+                  }),
                 ),
               ]),
               const SizedBox(height: 14),
@@ -2861,6 +2883,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       'subtitle': subtitle.text.trim(),
                       'icon': icon.text.trim(),
                       'coming_soon': comingSoon,
+                      'is_locked': isLocked,
                     });
                     _toast(err, 'Section added to the store.');
                     _loadPage(1);
@@ -2890,6 +2913,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     final subtitle = TextEditingController(text: '${sec['subtitle'] ?? ''}');
     final icon = TextEditingController(text: '${sec['icon'] ?? '🛍'}');
     bool comingSoon = (sec['coming_soon'] ?? false) as bool;
+    bool isLocked = (sec['is_locked'] ?? false) as bool;
     final builtin = (sec['builtin'] ?? false) as bool;
     await showModalBottomSheet(
       context: context,
@@ -2954,9 +2978,38 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 Switch(
                   value: comingSoon,
                   activeColor: AppColors.red,
-                  onChanged: (v) => setSheet(() => comingSoon = v),
+                  onChanged: (v) => setSheet(() {
+                    comingSoon = v;
+                    if (v) isLocked = false;
+                  }),
                 ),
               ]),
+              // ⭐ v85: LOCK — lock glyph on the hub / store card, tap
+              // does nothing (no toast, no open). Hides "COMING SOON".
+              Row(children: [
+                const Expanded(
+                  child: Text('Lock (users cannot open)',
+                      style: TextStyle(
+                          color: Color(0xFFC3C3C3),
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700)),
+                ),
+                Switch(
+                  value: isLocked,
+                  activeColor: AppColors.red,
+                  onChanged: (v) => setSheet(() {
+                    isLocked = v;
+                    if (v) comingSoon = false;
+                  }),
+                ),
+              ]),
+              const Padding(
+                padding: EdgeInsets.only(bottom: 6),
+                child: Text(
+                    'Locked tiles show a lock icon. Tapping them does '
+                    'nothing — no message, no open.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 10)),
+              ),
               const SizedBox(height: 14),
               SizedBox(
                 width: double.infinity,
@@ -2970,6 +3023,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       'subtitle': subtitle.text.trim(),
                       'icon': icon.text.trim(),
                       'coming_soon': comingSoon,
+                      'is_locked': isLocked,
                     });
                     _toast(err, 'Section updated.');
                     _loadPage(1);
