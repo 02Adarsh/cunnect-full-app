@@ -67,7 +67,7 @@ class NotifRouter {
         if (ApiConfig.studentToken == null) return;
         // ⭐ v55: food order status notifications land on My Orders —
         // the same section opened from the profile icon on the home page.
-        nav.push(MaterialPageRoute(builder: (_) => const MyOrdersScreen()));
+        nav.push(MaterialPageRoute(builder: (_) => const MyOrdersScreen(mode: 'all')));
         break;
       case 'ums':
         if (ApiConfig.studentToken == null) return;

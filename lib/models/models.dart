@@ -672,32 +672,49 @@ class PrintOrder {
     this.otpVerified = false,
   });
 
+  // ⭐ v87: never crash the whole My Orders list on one bad field type.
+  static int _asInt(dynamic v, [int d = 0]) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse('$v') ?? d;
+  }
+
+  static double _asDouble(dynamic v, [double d = 0]) {
+    if (v is double) return v;
+    if (v is num) return v.toDouble();
+    return double.tryParse('$v') ?? d;
+  }
+
+  static String _asStr(dynamic v, [String d = '']) =>
+      v == null ? d : '$v';
+
   factory PrintOrder.fromJson(Map<String, dynamic> json, String Function(String) media) {
     return PrintOrder(
-      id: (json['id'] ?? 0) as int,
-      vendorId: (json['vendor_id'] ?? 0) as int,
-      vendorName: (json['vendor_name'] ?? '') as String,
-      fileName: (json['file_name'] ?? '') as String,
-      fileUrl: media((json['file_url'] ?? '') as String),
-      pages: (json['pages'] ?? 0) as int,
-      copies: (json['copies'] ?? 1) as int,
-      printSide: (json['print_side'] ?? 'single') as String,
-      bwPages: (json['bw_pages'] ?? 0) as int,
-      colorPages: (json['color_pages'] ?? 0) as int,
-      bwPageRanges: (json['bw_page_ranges'] ?? '') as String,
-      colorPageRanges: (json['color_page_ranges'] ?? '') as String,
-      note: (json['notes'] ?? '') as String,
-      txnId: (json['txn_id'] ?? '') as String,
-      txnLast4: (json['txn_last4'] ?? '') as String,
-      studentName: (json['student_name'] ?? '') as String,
-      studentUid: (json['student_uid'] ?? '') as String,
-      studentPhone: (json['student_phone'] ?? '') as String,
-      status: parsePrintStatus(json['status'] as String?),
-      totalPrice: ((json['total_price'] ?? 0) as num).toDouble(),
-      createdAt: DateTime.tryParse((json['created_at_iso'] ?? '') as String) ??
+      id: _asInt(json['id']),
+      vendorId: _asInt(json['vendor_id']),
+      vendorName: _asStr(json['vendor_name']),
+      fileName: _asStr(json['file_name']),
+      fileUrl: media(_asStr(json['file_url'])),
+      pages: _asInt(json['pages']),
+      copies: _asInt(json['copies'], 1),
+      printSide: _asStr(json['print_side'], 'single'),
+      bwPages: _asInt(json['bw_pages']),
+      colorPages: _asInt(json['color_pages']),
+      bwPageRanges: _asStr(json['bw_page_ranges']),
+      colorPageRanges: _asStr(json['color_page_ranges']),
+      note: _asStr(json['notes']),
+      txnId: _asStr(json['txn_id']),
+      txnLast4: _asStr(json['txn_last4']),
+      studentName: _asStr(json['student_name']),
+      studentUid: _asStr(json['student_uid']),
+      studentPhone: _asStr(json['student_phone']),
+      status: parsePrintStatus(json['status']?.toString()),
+      totalPrice: _asDouble(json['total_price']),
+      createdAt: DateTime.tryParse(_asStr(json['created_at_iso'])) ??
+          DateTime.tryParse(_asStr(json['created_at'])) ??
           DateTime.now(),
-      deliveryOtp: (json['delivery_otp'] ?? '') as String,
-      otpVerified: (json['otp_verified'] ?? false) == true,
+      deliveryOtp: _asStr(json['delivery_otp']),
+      otpVerified: json['otp_verified'] == true,
     );
   }
 }

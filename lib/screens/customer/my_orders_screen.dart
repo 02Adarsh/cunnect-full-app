@@ -25,20 +25,22 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
   Timer? _timer;
   int _ticks = 0;
   String _filter = 'all'; // all | food | print | hostel | ride
+  bool _booting = true; // ⭐ v87: first full pull in flight
 
   @override
   void initState() {
     super.initState();
     // Same 3-second live status refresh as my_orders.html.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _reloadAll(force: true);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _reloadAll(force: true);
+      if (mounted) setState(() => _booting = false);
     });
     _timer = Timer.periodic(const Duration(seconds: 3), (_) async {
       if (!mounted) return;
       final store = context.read<AppStore>();
       store.refreshOrderStatuses();
       if (widget.mode == 'food') return;
-      // ⭐ v86: every 3s the other tabs re-fetch too — ALL stays live.
+      // ⭐ v87: every 3s the other tabs re-fetch too — ALL stays live.
       _ticks++;
       await _reloadAll();
     });
@@ -46,16 +48,27 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
 
   Future<void> _reloadAll({bool force = false}) async {
     final store = context.read<AppStore>();
-    // ⭐ v86: kick every loader in parallel so ALL is never food-only
-    // while the other endpoints are still in flight.
-    final jobs = <Future>[store.refreshCustomerOrders()];
-    if (widget.mode != 'food' || force) {
+    // ⭐ v87: ALWAYS pull print/hostel/ride/auto in dashboard mode.
+    // Each loader is isolated — one failure cannot wipe the others.
+    // food-only mode still skips the non-food endpoints.
+    Future safe(Future Function() job, String tag) async {
+      try {
+        await job();
+      } catch (e) {
+        debugPrint('[MyOrders] $tag failed: $e');
+      }
+    }
+
+    final jobs = <Future>[safe(store.refreshCustomerOrders, 'food')];
+    if (widget.mode != 'food') {
       jobs.addAll([
-        store.loadMyPrintOrders(),
-        store.loadMyHostelOrders(),
-        store.loadRides(),
-        store.loadMyAutoCalls(),
+        safe(store.loadMyPrintOrders, 'print'),
+        safe(store.loadMyHostelOrders, 'hostel'),
+        safe(store.loadRides, 'ride'),
+        safe(store.loadMyAutoCalls, 'auto'),
       ]);
+    } else if (force) {
+      // food tab of food-home: only food
     }
     await Future.wait(jobs);
     if (mounted) setState(() {});
@@ -142,18 +155,30 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
           if (!foodOnly)
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
-            child: Row(
-              children: [
-                _tab('ALL', 'all'),
-                _tab('🍔 FOOD', 'food'),
-                _tab('🖨 PRINT', 'print'),
-                _tab('🛏 HOSTEL', 'hostel'),
-                _tab('🚗 RIDE', 'ride'),
-              ],
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _tab('ALL', 'all'),
+                  _tab('FOOD', 'food'),
+                  _tab('PRINT', 'print'),
+                  _tab('HOSTEL', 'hostel'),
+                  _tab('RIDE', 'ride'),
+                ],
+              ),
             ),
           ),
+          if (!foodOnly && _booting)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(14, 8, 14, 0),
+              child: LinearProgressIndicator(
+                minHeight: 2,
+                color: Color(0xFFF10B1D),
+                backgroundColor: Color(0x22F10B1D),
+              ),
+            ),
           Expanded(
-            child: allEmpty
+            child: (allEmpty && !_booting)
                 ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -191,7 +216,12 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
                       ],
                     ),
                   )
-                : ListView(
+                : allEmpty && _booting
+                    ? const Center(
+                        child: Text('Loading food, print, hostel & rides…',
+                            style: TextStyle(
+                                color: AppColors.muted, fontSize: 13)))
+                    : ListView(
                     padding: const EdgeInsets.fromLTRB(14, 9, 14, 20),
                     children: [
                       // ---------------- FOOD ----------------

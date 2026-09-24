@@ -51,6 +51,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
         ..loadDashboardBanners()
         ..loadNotifications()
         ..loadStoreSections() // ⭐ v60: admin flags for Food/Store entries
+        ..preloadAllMyOrders() // ⭐ v87: warm print/hostel/ride/auto for ALL
         ..umsAutoScrape();
       // ⭐ v73: a tapped broadcast opens right here on the home page.
       if (mounted) BroadcastCard.showIfPending(context);
@@ -493,7 +494,9 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                     return _profileLink(Icons.receipt, 'My Orders', () {
                       Navigator.of(context).pop();
                       Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const MyOrdersScreen()));
+                          // ⭐ v87: explicit mode all — never food-only.
+                          builder: (_) =>
+                              const MyOrdersScreen(mode: 'all')));
                     });
                   }),
                   _profileLink(Icons.headset_mic, 'Contact Us', () {

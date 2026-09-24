@@ -463,6 +463,19 @@ class AppStore extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// ⭐ v87: warm EVERY My Orders source on the dashboard so Profile →
+  /// My Orders → ALL already has print / hostel / ride / auto, not food-only.
+  Future<void> preloadAllMyOrders() async {
+    if (ApiConfig.studentToken == null) return;
+    await Future.wait([
+      refreshCustomerOrders(),
+      loadMyPrintOrders(),
+      loadMyHostelOrders(),
+      loadRides(),
+      loadMyAutoCalls(),
+    ]);
+  }
+
   Future<void> loadNotices() async {
     // ⭐ Instant: hydrate from the on-device cache first so the feed
     // renders with zero delay, then refresh from the network.
@@ -1914,11 +1927,16 @@ class AppStore extends ChangeNotifier {
       try {
         final c = LocalStore.get('cache_my_print_orders');
         if (c != null && c.isNotEmpty && _printOrders.isEmpty) {
-          _printOrders.addAll([
-            for (final order in (jsonDecode(c) as List? ?? []))
-              PrintOrder.fromJson(
-                  (order as Map).cast<String, dynamic>(), ApiConfig.media),
-          ]);
+          final parsed = <PrintOrder>[];
+          for (final order in (jsonDecode(c) as List? ?? [])) {
+            try {
+              parsed.add(PrintOrder.fromJson(
+                  Map<String, dynamic>.from(order as Map), ApiConfig.media));
+            } catch (e) {
+              debugPrint('[orders] skip bad cached print: $e');
+            }
+          }
+          _printOrders.addAll(parsed);
           notifyListeners();
         }
       } catch (_) {}
@@ -1927,12 +1945,18 @@ class AppStore extends ChangeNotifier {
       final response = await api.get('/api/print/my-orders/',
           token: ApiConfig.studentToken);
       final data = api.dataOf(response);
+      final parsed = <PrintOrder>[];
+      for (final order in (data['orders'] as List? ?? [])) {
+        try {
+          parsed.add(PrintOrder.fromJson(
+              Map<String, dynamic>.from(order as Map), ApiConfig.media));
+        } catch (e) {
+          debugPrint('[orders] skip bad print row: $e');
+        }
+      }
       _printOrders
         ..clear()
-        ..addAll([
-          for (final order in (data['orders'] as List? ?? []))
-            PrintOrder.fromJson(order as Map<String, dynamic>, ApiConfig.media),
-        ]);
+        ..addAll(parsed);
       try {
         LocalStore.set(
             'cache_my_print_orders', jsonEncode(data['orders'] ?? []));
@@ -2165,10 +2189,15 @@ class AppStore extends ChangeNotifier {
       final response = await api.get('/api/store/hostel/my-orders/',
           token: ApiConfig.studentToken);
       final data = api.dataOf(response);
-      _myHostelOrders = [
-        for (final o in (data['orders'] as List? ?? []))
-          Map<String, dynamic>.from(o as Map)
-      ];
+      final parsed = <Map<String, dynamic>>[];
+      for (final o in (data['orders'] as List? ?? [])) {
+        try {
+          parsed.add(Map<String, dynamic>.from(o as Map));
+        } catch (e) {
+          debugPrint('[orders] skip bad hostel row: $e');
+        }
+      }
+      _myHostelOrders = parsed;
       notifyListeners();
     } catch (e) {
       debugPrint('[orders] hostel my-orders failed: $e');
@@ -3178,14 +3207,28 @@ class AppStore extends ChangeNotifier {
           token: ApiConfig.studentToken);
       final d = api.dataOf(r);
       final active = (d['active'] as List?) ?? const [];
-      // ⭐ v86: keep past as a fresh growable list (not a const []).
-      _pastRides = [
-        for (final x in ((d['past'] as List?) ?? const []))
-          Map<String, dynamic>.from(x as Map)
-      ];
-      _activeRide = active.isNotEmpty
-          ? Map<String, dynamic>.from(active.first as Map)
-          : null;
+      // ⭐ v87: also accept `history` / `rides` keys if backend shape drifts.
+      final pastRaw = (d['past'] as List?) ??
+          (d['history'] as List?) ??
+          (d['rides'] as List?) ??
+          const [];
+      final past = <Map<String, dynamic>>[];
+      for (final x in pastRaw) {
+        try {
+          past.add(Map<String, dynamic>.from(x as Map));
+        } catch (e) {
+          debugPrint('[orders] skip bad ride row: $e');
+        }
+      }
+      _pastRides = past;
+      try {
+        _activeRide = active.isNotEmpty
+            ? Map<String, dynamic>.from(active.first as Map)
+            : null;
+      } catch (e) {
+        debugPrint('[orders] bad active ride: $e');
+        _activeRide = null;
+      }
       _cacheRide(_activeRide);
       if (_activeRide == null) {
         LocalStore.remove('active_ride_code');
@@ -3600,10 +3643,15 @@ class AppStore extends ChangeNotifier {
       final r = await api.get('/api/ride/auto/my-calls/',
           token: ApiConfig.studentToken);
       final d = api.dataOf(r);
-      _myAutoCalls = [
-        for (final c in (d['calls'] as List? ?? []))
-          Map<String, dynamic>.from(c as Map)
-      ];
+      final parsed = <Map<String, dynamic>>[];
+      for (final c in (d['calls'] as List? ?? [])) {
+        try {
+          parsed.add(Map<String, dynamic>.from(c as Map));
+        } catch (e) {
+          debugPrint('[orders] skip bad auto call: $e');
+        }
+      }
+      _myAutoCalls = parsed;
       notifyListeners();
     } catch (e) {
       debugPrint('[orders] auto my-calls failed: $e');
