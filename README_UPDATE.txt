@@ -38,6 +38,15 @@ Also keep the two v84 migrations if you never ran them:
 6. AUTO accounts stay pure AUTO — the car console never offers them
    car bookings (v81 carry-forward, re-asserted).
 
+7. FAST IN-APP UPDATE.
+   - Splash no longer waits for the version check (was up to 6s).
+   - UPDATE button shows a live % bar, then opens the installer the
+     moment the APK lands — no notification-tray hop, no browser.
+   - Backend /api/app/version/ answers in ≤3s and prefers a direct
+     apk_url from deploy/app_version.json (skip GitHub entirely).
+   - GitHub fallback now looks at 02Adarsh/cunnect-full-app first
+     (where the APK actually lives), 30 min cache.
+
 =================================================================
 1) HOW TO LOCK A SECTION
 =================================================================
@@ -73,10 +82,20 @@ git add -A ; git commit -m "v85: section lock + icon, one notif tone, My Orders 
 flutter build apk --release
 
 NOTES
-- Backend repo is https://github.com/02Adarsh/cunnect-backend.git (main)
-  — that is what Render deploys. The app repo is
-  https://github.com/02Adarsh/cunnect-full-app.git (main).
-  Both pushes above are required; use `git push origin main`.
+- TWO REPOS (both required):
+    backend\myproject  →  https://github.com/02Adarsh/cunnect-backend.git
+                          (this is what Render deploys)
+    app root           →  https://github.com/02Adarsh/cunnect-full-app.git
+  Always `git push origin main` (plain git push has no upstream).
+
+- FASTEST UPDATE PATH after you build the APK:
+    1. Upload the APK somewhere direct (Google Drive "direct link",
+       Cloudflare R2, or a GitHub Release on cunnect-full-app).
+    2. Edit backend/myproject/deploy/app_version.json on the
+       cunnect-backend repo:
+         { "version": 85, "apk_url": "https://.../CUnnect-v85.apk" }
+    3. Commit + push origin main (Render redeploys).
+    Users tapping UPDATE then download straight from that URL.
 - Expand-Archive -Force does NOT overwrite — always Remove-Item first.
 - If res/raw still has universfield_… .wav AND .mp3, delete the .wav
   duplicate only if you intentionally keep the .mp3 — never both.
