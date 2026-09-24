@@ -284,29 +284,22 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
               // still swipeable, so on a very narrow phone the last
               // icon is one small drag away instead of being squeezed.
               final itemWidth = box.maxWidth / 6;
-              // ⭐ v85: Food / Store / Feed / Ride read their icon + lock
-              // flag from the admin Store sections. Locked = lock glyph,
-              // tap does nothing (no toast, no open).
+              // ⭐ v86: ORIGINAL Material icons stay forever. Admin lock
+              // only swaps the glyph for a lock and HIDES the label.
+              // Tap on a locked tile does nothing (no toast, no open).
               final builtin = context.watch<AppStore>().builtinSections;
-              String emojiOf(String key, String fallback) {
-                final v = (builtin[key]?['icon'] ?? '').toString().trim();
-                return v.isEmpty ? fallback : v;
-              }
               bool lockedOf(String key) =>
                   (builtin[key]?['is_locked'] ?? false) as bool;
               bool activeOf(String key) =>
                   (builtin[key]?['is_active'] ?? true) as bool;
-              VoidCallback lockedTap() => () {};
               final items = <({
-                IconData? icon,
-                String? emoji,
+                IconData icon,
                 String label,
                 bool locked,
                 VoidCallback onTap
               })>[
                 (
                   icon: Icons.school,
-                  emoji: null,
                   label: 'UMS',
                   locked: false,
                   onTap: () {
@@ -320,7 +313,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                 ),
                 (
                   icon: Icons.restaurant,
-                  emoji: emojiOf('food', '🍔'),
                   label: 'Food',
                   locked: lockedOf('food') || !activeOf('food'),
                   onTap: () {
@@ -331,7 +323,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                 ),
                 (
                   icon: Icons.shopping_bag,
-                  emoji: emojiOf('store', '🛍'),
                   label: 'Store',
                   locked: lockedOf('store') || !activeOf('store'),
                   onTap: () {
@@ -342,7 +333,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                 ),
                 (
                   icon: Icons.dynamic_feed_outlined,
-                  emoji: emojiOf('feed', '📰'),
                   label: 'Feed',
                   locked: lockedOf('feed') || !activeOf('feed'),
                   onTap: () {
@@ -353,7 +343,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                 ),
                 (
                   icon: Icons.local_taxi_rounded,
-                  emoji: emojiOf('ride', '🚕'),
                   label: 'Ride',
                   locked: lockedOf('ride') || !activeOf('ride'),
                   onTap: () {
@@ -364,7 +353,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                 ),
                 (
                   icon: Icons.storefront,
-                  emoji: null,
                   label: 'Partner',
                   locked: false,
                   onTap: () {
@@ -390,7 +378,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                             item.icon,
                             item.label,
                             item.locked ? () {} : item.onTap,
-                            emoji: item.emoji,
                             locked: item.locked,
                           ),
                         ),
@@ -405,10 +392,10 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
     );
   }
 
-  Widget _navItem(IconData? icon, String label, VoidCallback onTap,
-      {String? emoji, bool locked = false}) {
+  Widget _navItem(IconData icon, String label, VoidCallback onTap,
+      {bool locked = false}) {
     return _NavItemTile(
-        icon: icon, emoji: emoji, label: label, locked: locked, onTap: onTap);
+        icon: icon, label: label, locked: locked, onTap: onTap);
   }
 
   void _openProfilePanel() {
@@ -494,10 +481,20 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                           : 'CUnnect Campus Member',
                       style: const TextStyle(color: Color(0xFFAAAAAA), fontSize: 11)),
                   const SizedBox(height: 21),
-                  _profileLink(Icons.receipt, 'My Orders', () {
-                    Navigator.of(context).pop();
-                    Navigator.of(context)
-                        .push(MaterialPageRoute(builder: (_) => const MyOrdersScreen()));
+                  Builder(builder: (ctx) {
+                    final b = context.read<AppStore>().builtinSections;
+                    final locked =
+                        (b['my_orders']?['is_locked'] ?? false) as bool;
+                    if (locked) {
+                      // lock only — no "My Orders" text under it
+                      return _profileLink(Icons.lock_rounded, '', () {},
+                          locked: true);
+                    }
+                    return _profileLink(Icons.receipt, 'My Orders', () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const MyOrdersScreen()));
+                    });
                   }),
                   _profileLink(Icons.headset_mic, 'Contact Us', () {
                     Navigator.of(context).pop();
@@ -535,9 +532,13 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
     );
   }
 
-  Widget _profileLink(IconData icon, String label, VoidCallback onTap, {bool logout = false}) {
+  Widget _profileLink(IconData icon, String label, VoidCallback onTap,
+      {bool logout = false, bool locked = false}) {
+    final fg = locked
+        ? const Color(0xFF666666)
+        : (logout ? const Color(0xFFFF9CA5) : const Color(0xFFEEEEEE));
     return GestureDetector(
-      onTap: onTap,
+      onTap: locked ? () {} : onTap,
       child: Container(
         width: double.infinity,
         margin: const EdgeInsets.only(bottom: 8),
@@ -546,19 +547,23 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
           color: const Color(0xFF101010),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-              color: logout ? const Color(0x61FF0000) : const Color(0xFF303030)),
+              color: locked
+                  ? const Color(0xFF2A2A2A)
+                  : (logout
+                      ? const Color(0x59F10B1D)
+                      : const Color(0xFF262626))),
         ),
-        child: Row(
-          children: [
-            Icon(icon, size: 16, color: Colors.red),
-            const SizedBox(width: 11),
-            Text(label,
-                style: TextStyle(
-                    color: logout ? const Color(0xFFFF9CA5) : const Color(0xFFE8E8E8),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700)),
-          ],
-        ),
+        child: Row(children: [
+          Icon(locked ? Icons.lock_rounded : icon,
+              size: 18, color: fg),
+          const SizedBox(width: 10),
+          // ⭐ v86: locked rows hide the real label (no section name).
+          Text(locked ? '' : label,
+              style: TextStyle(
+                  color: fg,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700)),
+        ]),
       ),
     );
   }
@@ -623,14 +628,12 @@ class _NoGlowScroll extends ScrollBehavior {
 
 /// ⭐ the icon turns RED instantly on tap and reverts on release — a hover-like flash
 class _NavItemTile extends StatefulWidget {
-  final IconData? icon;
-  final String? emoji;
+  final IconData icon;
   final String label;
   final bool locked;
   final VoidCallback onTap;
   const _NavItemTile(
       {required this.icon,
-      this.emoji,
       required this.label,
       this.locked = false,
       required this.onTap});
@@ -679,9 +682,8 @@ class _NavItemTileState extends State<_NavItemTile> {
   Widget build(BuildContext context) {
     final locked = widget.locked;
     final color = locked
-        ? const Color(0xFF666666)
+        ? const Color(0xFF888888)
         : (_pressed ? const Color(0xFFF10B1D) : const Color(0xFFDDDDDD));
-    final emoji = (widget.emoji ?? '').trim();
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: (e) {
@@ -717,27 +719,27 @@ class _NavItemTileState extends State<_NavItemTile> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ⭐ v85: lock glyph replaces the icon when the admin locks
-            // the section; otherwise the admin's emoji (or Material icon).
+            // ⭐ v86: locked = lock glyph ONLY. Original Material icon
+            // otherwise. Label is HIDDEN when locked (no section name).
             if (locked)
               const Icon(Icons.lock_rounded, size: 22, color: Color(0xFF888888))
-            else if (emoji.isNotEmpty)
-              Text(emoji, style: const TextStyle(fontSize: 20, height: 1.1))
             else
-              Icon(widget.icon ?? Icons.circle, size: 24, color: color),
-            const SizedBox(height: 5),
-            // ⭐ v70b: the label NEVER wraps — on narrow phones it
-            // scales down instead of dropping a letter ("Partne/r").
-            SizedBox(
-              width: double.infinity,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(widget.label,
-                    maxLines: 1,
-                    softWrap: false,
-                    style: TextStyle(color: color, fontSize: 12)),
+              Icon(widget.icon, size: 24, color: color),
+            if (!locked) ...[
+              const SizedBox(height: 5),
+              // ⭐ v70b: the label NEVER wraps — on narrow phones it
+              // scales down instead of dropping a letter ("Partne/r").
+              SizedBox(
+                width: double.infinity,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(widget.label,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: TextStyle(color: color, fontSize: 12)),
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

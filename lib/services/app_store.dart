@@ -1939,7 +1939,7 @@ class AppStore extends ChangeNotifier {
       } catch (_) {}
       notifyListeners();
     } catch (error) {
-      _fail(error);
+      debugPrint('[orders] print my-orders failed: $error');
       notifyListeners();
     }
   }
@@ -2167,10 +2167,13 @@ class AppStore extends ChangeNotifier {
       final data = api.dataOf(response);
       _myHostelOrders = [
         for (final o in (data['orders'] as List? ?? []))
-          (o as Map<String, dynamic>)
+          Map<String, dynamic>.from(o as Map)
       ];
       notifyListeners();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[orders] hostel my-orders failed: $e');
+      notifyListeners();
+    }
   }
 
   List<Map<String, dynamic>> _vendorHostelOrders = [];
@@ -3175,7 +3178,11 @@ class AppStore extends ChangeNotifier {
           token: ApiConfig.studentToken);
       final d = api.dataOf(r);
       final active = (d['active'] as List?) ?? const [];
-      _pastRides = (d['past'] as List?) ?? const [];
+      // ⭐ v86: keep past as a fresh growable list (not a const []).
+      _pastRides = [
+        for (final x in ((d['past'] as List?) ?? const []))
+          Map<String, dynamic>.from(x as Map)
+      ];
       _activeRide = active.isNotEmpty
           ? Map<String, dynamic>.from(active.first as Map)
           : null;
@@ -3186,7 +3193,10 @@ class AppStore extends ChangeNotifier {
         LocalStore.set('active_ride_code', '${_activeRide!['ride_code'] ?? ''}');
       }
       notifyListeners();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[orders] ride list failed: $e');
+      notifyListeners();
+    }
   }
 
   Future<void> refreshActiveRide(String code) async {
@@ -3591,10 +3601,14 @@ class AppStore extends ChangeNotifier {
           token: ApiConfig.studentToken);
       final d = api.dataOf(r);
       _myAutoCalls = [
-        for (final c in (d['calls'] as List? ?? [])) Map<String, dynamic>.from(c)
+        for (final c in (d['calls'] as List? ?? []))
+          Map<String, dynamic>.from(c as Map)
       ];
       notifyListeners();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[orders] auto my-calls failed: $e');
+      notifyListeners();
+    }
   }
 
   List<Map<String, dynamic>> _myAutoCalls = [];

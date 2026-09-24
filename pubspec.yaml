@@ -2,7 +2,7 @@ name: cunnect_food
 description: "CUnnect Food - Flutter port of the Django food ordering app (Customer, Vendor & Delivery panels)."
 publish_to: 'none'
 # ⭐ v75: keep this in step with kAppVersion (lib/screens/splash_screen.dart)
-version: 2.2.85+85
+version: 2.2.86+86
 
 environment:
   sdk: ^3.5.0

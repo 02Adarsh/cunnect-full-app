@@ -264,7 +264,8 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
   Widget _categoryCard(String icon, String title, String sub, String? badge,
       VoidCallback onTap, {bool locked = false}) {
     return InkWell(
-      // ⭐ v85: locked cards swallow the tap — no toast, no navigation.
+      // ⭐ v86: locked cards swallow the tap — no toast, no navigation.
+      // Only the lock glyph shows; the section name is hidden.
       onTap: locked ? null : onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
@@ -276,7 +277,7 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
           border: Border.all(color: AppColors.line),
         ),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Container(
               width: 46,
@@ -288,71 +289,52 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
                     : const Color(0x2EF10B1D),
               ),
               alignment: Alignment.center,
-              // ⭐ v85: lock glyph when the admin locks the section.
               child: locked
                   ? const Icon(Icons.lock_rounded,
                       size: 20, color: Color(0xFFAAAAAA))
                   : Text(icon, style: const TextStyle(fontSize: 20)),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(title,
-                            style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800,
-                                color: locked
-                                    ? const Color(0xFF888888)
-                                    : null)),
-                      ),
-                      if (locked)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 7, vertical: 3),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0x55FFFFFF)),
-                          ),
-                          child: const Text('LOCKED',
-                              style: TextStyle(
-                                  color: Color(0xFFAAAAAA),
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 1)),
-                        )
-                      else if (badge != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 7, vertical: 3),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0x66D4C7A3)),
-                          ),
-                          child: Text(badge,
+            if (!locked) ...[
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(title,
                               style: const TextStyle(
-                                  color: AppColors.gold,
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 1)),
+                                  fontSize: 13, fontWeight: FontWeight.w800)),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 5),
-                  Text(sub,
-                      style: TextStyle(
-                          color: locked
-                              ? const Color(0xFF666666)
-                              : AppColors.muted,
-                          fontSize: 11,
-                          height: 1.4)),
-                ],
+                        if (badge != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 3),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                  color: const Color(0x66D4C7A3)),
+                            ),
+                            child: Text(badge,
+                                style: const TextStyle(
+                                    color: AppColors.gold,
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(sub,
+                        style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 11,
+                            height: 1.4)),
+                  ],
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

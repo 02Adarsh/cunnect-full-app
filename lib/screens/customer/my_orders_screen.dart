@@ -33,31 +33,32 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _reloadAll(force: true);
     });
-    _timer = Timer.periodic(const Duration(seconds: 3), (_) {
+    _timer = Timer.periodic(const Duration(seconds: 3), (_) async {
       if (!mounted) return;
-      setState(() {});
       final store = context.read<AppStore>();
       store.refreshOrderStatuses();
       if (widget.mode == 'food') return;
-      // ⭐ v85: every 6s the other tabs are re-fetched too, so "ALL"
-      // really lists print, hostel, rides and auto calls as they happen.
+      // ⭐ v86: every 3s the other tabs re-fetch too — ALL stays live.
       _ticks++;
-      if (_ticks % 2 == 0) {
-        _reloadAll();
-      }
+      await _reloadAll();
     });
   }
 
-  void _reloadAll({bool force = false}) {
+  Future<void> _reloadAll({bool force = false}) async {
     final store = context.read<AppStore>();
-    store.refreshCustomerOrders();
-    if (widget.mode == 'food' && !force) return;
+    // ⭐ v86: kick every loader in parallel so ALL is never food-only
+    // while the other endpoints are still in flight.
+    final jobs = <Future>[store.refreshCustomerOrders()];
     if (widget.mode != 'food' || force) {
-      store.loadMyPrintOrders();
-      store.loadMyHostelOrders();
-      store.loadRides();
-      store.loadMyAutoCalls();
+      jobs.addAll([
+        store.loadMyPrintOrders(),
+        store.loadMyHostelOrders(),
+        store.loadRides(),
+        store.loadMyAutoCalls(),
+      ]);
     }
+    await Future.wait(jobs);
+    if (mounted) setState(() {});
   }
 
   @override
