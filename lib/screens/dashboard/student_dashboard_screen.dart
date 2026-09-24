@@ -724,8 +724,9 @@ class _NavItemTileState extends State<_NavItemTile> {
           children: [
             // ⭐ v86: locked = lock glyph ONLY. Original Material icon
             // otherwise. Label is HIDDEN when locked (no section name).
+            // ⭐ v88: lock glyph SAME size as every other hub icon (24).
             if (locked)
-              const Icon(Icons.lock_rounded, size: 22, color: Color(0xFF888888))
+              const Icon(Icons.lock_rounded, size: 24, color: Color(0xFF888888))
             else
               Icon(widget.icon, size: 24, color: color),
             if (!locked) ...[

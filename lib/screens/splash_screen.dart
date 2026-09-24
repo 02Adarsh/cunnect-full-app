@@ -21,7 +21,15 @@ BuildContext? get rootNavKeyForUpdate => rootNavKey.currentContext;
 
 /// ⭐ Internal app version — bump it when building a new APK +
 /// also put the same number + APK link in backend deploy/app_version.json.
-const int kAppVersion = 87;
+const int kAppVersion = 88;
+
+/// ⭐ v88: pending update survives SplashScreen dispose (pushReplacement
+/// tears the splash State down). Dialog is shown from the root navigator.
+class _PendingUpdate {
+  static String? url;
+  static int ver = 0;
+  static bool shown = false;
+}
 
 /// ⭐ Animated CUnnect splash on every app open — then route by session.
 class SplashScreen extends StatefulWidget {
@@ -53,8 +61,9 @@ class _SplashScreenState extends State<SplashScreen>
     _tagAnim = CurvedAnimation(
         parent: _ctrl,
         curve: const Interval(0.45, 0.85, curve: Curves.easeOut));
-    // ⭐ v85: splash paints immediately. Update check runs in parallel
-    // and the dialog pops once (or after) we land on the next screen.
+    // ⭐ v88: splash paints immediately. Update check ONLY stores the
+    // URL — the sticky dialog is raised AFTER pushReplacement so the
+    // route change can never swallow it (the v85 vanish bug).
     _prefetchMedia();
     _ctrl.forward().then((_) => _route());
     _checkUpdate();
@@ -83,20 +92,21 @@ class _SplashScreenState extends State<SplashScreen>
   /// handles iOS updates), so the dialog is skipped there.
   Future<void> _checkUpdate() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
-    // ⭐ v85: fast first probe (2s). If Render is cold, one short retry.
-    // Always try to raise the dialog — _route may already have run.
+    // ⭐ v88: never show the dialog from here — only remember the URL.
+    // Showing on the splash route was swallowed by pushReplacement
+    // (popup flash then gone). Sticky show happens after _route.
     final found = await _fetchUpdate(const Duration(seconds: 2));
     if (found) {
-      _showUpdateDialog();
+      _presentUpdateSticky();
       return;
     }
     Future.delayed(const Duration(seconds: 3), () async {
       if (_updateUrl != null) {
-        _showUpdateDialog();
+        _presentUpdateSticky();
         return;
       }
       final ok = await _fetchUpdate(const Duration(seconds: 5));
-      if (ok) _showUpdateDialog();
+      if (ok) _presentUpdateSticky();
     });
   }
 
@@ -108,14 +118,16 @@ class _SplashScreenState extends State<SplashScreen>
       final ver = (data['version'] ?? 0) is int
           ? (data['version'] as int)
           : int.tryParse('${data['version']}') ?? 0;
-      final url = (data['url'] ?? '').toString();
+      // ⭐ v88: accept apk_url OR url (backend may send either).
+      final url = (data['apk_url'] ?? data['url'] ?? '').toString().trim();
       if (ver > kAppVersion && url.isNotEmpty) {
-        // ⭐ v73: "Later" no longer silences the update — the dialog
-        // comes back every single time the app is opened until the
-        // user actually updates.
+        // ⭐ v73/v88: "Later" NEVER silences the update. Every cold
+        // start shows the dialog again until the user actually installs.
         LocalStore.remove('skip_update_ver');
         _updateUrl = url;
         _updateVer = ver;
+        _PendingUpdate.url = url;
+        _PendingUpdate.ver = ver;
         return true;
       }
     } catch (_) {}
@@ -139,33 +151,62 @@ class _SplashScreenState extends State<SplashScreen>
     } else {
       next = const StudentLoginScreen();
     }
-    Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => next));
-    if (_updateUrl != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _showUpdateDialog());
-    }
-    if (_updateUrl == null) {
+    // ⭐ v88: pushReplacement's Future completes when the NEW route is
+    // POPPED — not when it is pushed. Never chain .then for "after
+    // navigate". Schedule sticky dialog on the next frames instead so
+    // the dashboard is under it and the splash overlay is gone.
+    Navigator.of(context)
+        .pushReplacement(MaterialPageRoute(builder: (_) => next));
+    // Two frames + a short delay covers slow first paints / cold start.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        final ctx = rootNavKeyForUpdate;
-        if (ctx != null) promptAutostartOnce(ctx);
+        _presentUpdateSticky();
+        if (_updateUrl == null) {
+          final ctx = rootNavKeyForUpdate;
+          if (ctx != null) promptAutostartOnce(ctx);
+        }
       });
-    }
+    });
+    Future.delayed(const Duration(milliseconds: 600), _presentUpdateSticky);
+    Future.delayed(const Duration(milliseconds: 1500), _presentUpdateSticky);
+    Future.delayed(const Duration(milliseconds: 3000), _presentUpdateSticky);
   }
 
-  /// ⭐ Update dialog — same dialog from the splash and the late retry.
-  /// ⭐ v85: UPDATE starts a tracked in-app download with a live % bar,
-  /// then opens the installer the moment the file lands (no waiting on
-  /// the notification tray, no browser hop unless native download fails).
-  void _showUpdateDialog() {
+  /// ⭐ v88: sticky update — retries until the root navigator is ready.
+  /// Uses [_PendingUpdate] so SplashScreen dispose cannot drop the URL.
+  /// "Later" only closes this session; next cold start shows it again.
+  void _presentUpdateSticky({int attempt = 0}) {
+    final url = _PendingUpdate.url ?? _updateUrl;
+    final ver = _PendingUpdate.ver != 0 ? _PendingUpdate.ver : _updateVer;
+    if (url == null || url.isEmpty) return;
+    if (_PendingUpdate.shown || _updateDialogShown) return;
     final ctx = rootNavKeyForUpdate;
-    if (ctx == null || _updateUrl == null || _updateDialogShown) return;
+    if (ctx == null) {
+      if (attempt < 40) {
+        Future.delayed(const Duration(milliseconds: 250),
+            () => _presentUpdateSticky(attempt: attempt + 1));
+      }
+      return;
+    }
+    // Mark shown ONLY right before showDialog so a failed attempt retries.
+    _PendingUpdate.shown = true;
     _updateDialogShown = true;
     showDialog(
       context: ctx,
       barrierDismissible: false,
-      builder: (_) => _UpdateDialog(
-        version: _updateVer,
-        url: _updateUrl!,
+      useRootNavigator: true,
+      builder: (_) => PopScope(
+        // ⭐ back button cannot dismiss — only Later / successful install.
+        canPop: false,
+        child: _UpdateDialog(
+          version: ver,
+          url: url,
+          onLater: () {
+            // Session dismiss only. Next cold start re-shows
+            // because _PendingUpdate is reset on every process start.
+            // Do NOT write skip_update_ver.
+          },
+        ),
       ),
     );
   }
@@ -220,7 +261,9 @@ class _SplashScreenState extends State<SplashScreen>
 class _UpdateDialog extends StatefulWidget {
   final int version;
   final String url;
-  const _UpdateDialog({required this.version, required this.url});
+  final VoidCallback? onLater;
+  const _UpdateDialog(
+      {required this.version, required this.url, this.onLater});
 
   @override
   State<_UpdateDialog> createState() => _UpdateDialogState();
@@ -317,7 +360,10 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       actions: [
         if (!_busy)
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () {
+              widget.onLater?.call();
+              Navigator.of(context).pop();
+            },
             child: const Text('Later',
                 style: TextStyle(color: Color(0xFF9A9A9A))),
           ),

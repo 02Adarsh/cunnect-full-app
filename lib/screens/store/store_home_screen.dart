@@ -291,7 +291,7 @@ class _StoreHomeScreenState extends State<StoreHomeScreen> {
               alignment: Alignment.center,
               child: locked
                   ? const Icon(Icons.lock_rounded,
-                      size: 20, color: Color(0xFFAAAAAA))
+                      size: 24, color: Color(0xFFAAAAAA))
                   : Text(icon, style: const TextStyle(fontSize: 20)),
             ),
             if (!locked) ...[

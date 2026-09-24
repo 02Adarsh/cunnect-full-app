@@ -83,6 +83,30 @@ class AppStore extends ChangeNotifier {
         email: LocalStore.get('vendor_email') ?? '',
       );
     }
+    // ⭐ v88: hydrate lock flags from disk BEFORE first paint so a
+    // locked Food/Store/Feed/Ride never opens for a few seconds on
+    // cold start while /api/store/sections/ is still in flight.
+    _hydrateBuiltinSectionsCache();
+  }
+
+  void _hydrateBuiltinSectionsCache() {
+    try {
+      final c = LocalStore.get('cache_builtin_sections');
+      if (c != null && c.isNotEmpty) {
+        final m = jsonDecode(c) as Map;
+        builtinSections = {
+          for (final e in m.entries)
+            '${e.key}': Map<String, dynamic>.from(e.value as Map),
+        };
+      }
+      final cs = LocalStore.get('cache_store_sections');
+      if (cs != null && cs.isNotEmpty) {
+        storeSections = [
+          for (final x in (jsonDecode(cs) as List? ?? []))
+            Map<String, dynamic>.from(x as Map),
+        ];
+      }
+    } catch (_) {}
   }
 
   final ApiClient api;
@@ -459,6 +483,11 @@ class AppStore extends ChangeNotifier {
         for (final e in ((data['builtin'] as Map?) ?? {}).entries)
           '${e.key}': Map<String, dynamic>.from(e.value as Map),
       };
+      // ⭐ v88: persist so the next cold start paints locks instantly.
+      try {
+        LocalStore.set('cache_builtin_sections', jsonEncode(builtinSections));
+        LocalStore.set('cache_store_sections', jsonEncode(storeSections));
+      } catch (_) {}
       notifyListeners();
     } catch (_) {}
   }
