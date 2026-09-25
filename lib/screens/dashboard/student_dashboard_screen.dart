@@ -15,6 +15,7 @@ import '../auth/student_login_screen.dart';
 import '../customer/food_home_screen.dart';
 import '../notices/notice_board_screen.dart';
 import '../customer/my_orders_screen.dart';
+import '../splash_screen.dart' show PendingUpdate;
 import '../store/store_home_screen.dart';
 import '../ums/ums_login_screen.dart';
 import '../ums/ums_dashboard_screen.dart';
@@ -46,13 +47,22 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
     // ⭐ v75: back on the student side — rider / vendor pushes must not
     // raise their popups or ring here.
     ActivePortal.set(AppPortal.student);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AppStore>()
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final store = context.read<AppStore>();
+      // ⭐ v89: AWAIT sections first so locks paint before the user can
+      // tap Food. Cache already hydrated in AppStore ctor; this refresh
+      // overwrites with the live admin lock state ASAP.
+      try {
+        await store.loadStoreSections();
+      } catch (_) {}
+      if (!mounted) return;
+      store
         ..loadDashboardBanners()
         ..loadNotifications()
-        ..loadStoreSections() // ⭐ v60: admin flags for Food/Store entries
         ..preloadAllMyOrders() // ⭐ v87: warm print/hostel/ride/auto for ALL
         ..umsAutoScrape();
+      // ⭐ v89: sticky update also from dashboard (in case splash missed).
+      PendingUpdate.present();
       // ⭐ v73: a tapped broadcast opens right here on the home page.
       if (mounted) BroadcastCard.showIfPending(context);
     });

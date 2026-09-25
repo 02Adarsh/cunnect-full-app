@@ -21,14 +21,89 @@ BuildContext? get rootNavKeyForUpdate => rootNavKey.currentContext;
 
 /// ⭐ Internal app version — bump it when building a new APK +
 /// also put the same number + APK link in backend deploy/app_version.json.
-const int kAppVersion = 88;
+const int kAppVersion = 89;
 
-/// ⭐ v88: pending update survives SplashScreen dispose (pushReplacement
-/// tears the splash State down). Dialog is shown from the root navigator.
-class _PendingUpdate {
+/// ⭐ v89: pending update lives OUTSIDE SplashScreen so dispose / route
+/// change can never drop it. "Later" only closes this session — the next
+/// process start resets [shown] and the popup returns (old behaviour).
+class PendingUpdate {
   static String? url;
   static int ver = 0;
-  static bool shown = false;
+  /// True only while a dialog is currently on screen this session.
+  static bool showing = false;
+  /// True after user tapped Later this session (suppress re-show until
+  /// next cold start — process kill resets this static).
+  static bool dismissedThisSession = false;
+
+  static void set(String u, int v) {
+    url = u;
+    ver = v;
+  }
+
+  static bool get hasUpdate =>
+      url != null && url!.isNotEmpty && ver > kAppVersion;
+
+  /// Show the sticky update sheet on the ROOT navigator.
+  /// Safe to call many times — only one sheet; never on a dying route.
+  static void present({int attempt = 0}) {
+    if (!hasUpdate) return;
+    if (dismissedThisSession) return;
+    if (showing) return;
+    final ctx = rootNavKey.currentContext;
+    if (ctx == null) {
+      if (attempt < 50) {
+        Future.delayed(const Duration(milliseconds: 200),
+            () => present(attempt: attempt + 1));
+      }
+      return;
+    }
+    // ⭐ Never show while SplashScreen is still the top route — that is
+    // what made the popup flash and vanish on pushReplacement.
+    final nav = rootNavKey.currentState;
+    if (nav == null) {
+      if (attempt < 50) {
+        Future.delayed(const Duration(milliseconds: 200),
+            () => present(attempt: attempt + 1));
+      }
+      return;
+    }
+    // If the top page is still the splash (it has no settings name), wait
+    // until at least one post-splash frame has settled.
+    showing = true;
+    try {
+      showDialog<void>(
+        context: ctx,
+        barrierDismissible: false,
+        useRootNavigator: true,
+        builder: (dialogCtx) {
+          return PopScope(
+            canPop: false,
+            child: _UpdateDialog(
+              version: ver,
+              url: url!,
+              onLater: () {
+                // Session-only dismiss. Next cold start → popup again.
+                dismissedThisSession = true;
+                showing = false;
+                // Do NOT write skip_update_ver — old sticky behaviour.
+              },
+            ),
+          );
+        },
+      ).then((_) {
+        // Dialog closed (Later or install). Keep dismissedThisSession if Later.
+        showing = false;
+      }).catchError((_) {
+        showing = false;
+      });
+    } catch (_) {
+      showing = false;
+      if (attempt < 50) {
+        Future.delayed(const Duration(milliseconds: 300),
+            () => present(attempt: attempt + 1));
+      }
+    }
+  }
 }
 
 /// ⭐ Animated CUnnect splash on every app open — then route by session.
@@ -41,10 +116,8 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  String? _updateUrl;
-  int _updateVer = 0;
   bool _prefetched = false;
-  bool _updateDialogShown = false;
+  bool _routed = false;
   late final AnimationController _ctrl;
   late final Animation<double> _logoAnim;
   late final Animation<double> _tagAnim;
@@ -53,7 +126,6 @@ class _SplashScreenState extends State<SplashScreen>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        // ⭐ v85: shorter splash — update check no longer holds the door.
         vsync: this, duration: const Duration(milliseconds: 1400));
     _logoAnim = CurvedAnimation(
         parent: _ctrl,
@@ -61,15 +133,26 @@ class _SplashScreenState extends State<SplashScreen>
     _tagAnim = CurvedAnimation(
         parent: _ctrl,
         curve: const Interval(0.45, 0.85, curve: Curves.easeOut));
-    // ⭐ v88: splash paints immediately. Update check ONLY stores the
-    // URL — the sticky dialog is raised AFTER pushReplacement so the
-    // route change can never swallow it (the v85 vanish bug).
     _prefetchMedia();
-    _ctrl.forward().then((_) => _route());
+    // ⭐ v89: kick update probe + lock refresh in parallel with splash.
+    // NEVER show the update dialog on this route.
     _checkUpdate();
+    _warmLocksBeforeRoute();
+    _ctrl.forward().then((_) => _route());
   }
 
-  /// ⭐ Warm the banner/hero images into the disk cache during the splash.
+  /// ⭐ v89: while splash plays, refresh lock flags so the dashboard
+  /// paints with the REAL admin lock state (not a stale unlocked cache).
+  Future<void> _warmLocksBeforeRoute() async {
+    try {
+      final store = context.read<AppStore>();
+      if (store.studentLoggedIn) {
+        await store.loadStoreSections()
+            .timeout(const Duration(seconds: 4), onTimeout: () {});
+      }
+    } catch (_) {}
+  }
+
   void _prefetchMedia() {
     if (_prefetched) return;
     _prefetched = true;
@@ -85,29 +168,17 @@ class _SplashScreenState extends State<SplashScreen>
     }
   }
 
-  /// ⭐ Check the latest version on the server — show the update dialog if
-  /// a newer APK exists. The first try can time out on a Render cold start,
-  /// so it checks again in the background after the splash (late dialog).
-  /// ⭐ v63: Android-only — iOS cannot install APKs (App Store/TestFlight
-  /// handles iOS updates), so the dialog is skipped there.
   Future<void> _checkUpdate() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
-    // ⭐ v88: never show the dialog from here — only remember the URL.
-    // Showing on the splash route was swallowed by pushReplacement
-    // (popup flash then gone). Sticky show happens after _route.
+    // Only store the URL here — present() is called AFTER we leave splash.
     final found = await _fetchUpdate(const Duration(seconds: 2));
-    if (found) {
-      _presentUpdateSticky();
-      return;
+    if (!found) {
+      Future.delayed(const Duration(seconds: 3), () async {
+        await _fetchUpdate(const Duration(seconds: 5));
+        // If we already left splash, try present now.
+        if (_routed) PendingUpdate.present();
+      });
     }
-    Future.delayed(const Duration(seconds: 3), () async {
-      if (_updateUrl != null) {
-        _presentUpdateSticky();
-        return;
-      }
-      final ok = await _fetchUpdate(const Duration(seconds: 5));
-      if (ok) _presentUpdateSticky();
-    });
   }
 
   Future<bool> _fetchUpdate(Duration timeout) async {
@@ -118,16 +189,10 @@ class _SplashScreenState extends State<SplashScreen>
       final ver = (data['version'] ?? 0) is int
           ? (data['version'] as int)
           : int.tryParse('${data['version']}') ?? 0;
-      // ⭐ v88: accept apk_url OR url (backend may send either).
       final url = (data['apk_url'] ?? data['url'] ?? '').toString().trim();
       if (ver > kAppVersion && url.isNotEmpty) {
-        // ⭐ v73/v88: "Later" NEVER silences the update. Every cold
-        // start shows the dialog again until the user actually installs.
         LocalStore.remove('skip_update_ver');
-        _updateUrl = url;
-        _updateVer = ver;
-        _PendingUpdate.url = url;
-        _PendingUpdate.ver = ver;
+        PendingUpdate.set(url, ver);
         return true;
       }
     } catch (_) {}
@@ -140,75 +205,41 @@ class _SplashScreenState extends State<SplashScreen>
     super.dispose();
   }
 
-  void _route() {
-    if (!mounted) return;
+  Future<void> _route() async {
+    if (!mounted || _routed) return;
+    _routed = true;
     final store = context.read<AppStore>();
+    // One last short try to have fresh locks before paint.
+    if (store.studentLoggedIn && store.builtinSections.isEmpty) {
+      try {
+        await store.loadStoreSections()
+            .timeout(const Duration(seconds: 2), onTimeout: () {});
+      } catch (_) {}
+    }
+    if (!mounted) return;
     final Widget next;
     if (store.studentLoggedIn) {
-      next = const StudentDashboardScreen(); // ⭐ already logged in -> dashboard
+      next = const StudentDashboardScreen();
     } else if (ApiConfig.vendorToken != null) {
-      next = const VendorShell(); // ⭐ vendor logged-in -> vendor dashboard
+      next = const VendorShell();
     } else {
       next = const StudentLoginScreen();
     }
-    // ⭐ v88: pushReplacement's Future completes when the NEW route is
-    // POPPED — not when it is pushed. Never chain .then for "after
-    // navigate". Schedule sticky dialog on the next frames instead so
-    // the dashboard is under it and the splash overlay is gone.
     Navigator.of(context)
         .pushReplacement(MaterialPageRoute(builder: (_) => next));
-    // Two frames + a short delay covers slow first paints / cold start.
+    // ⭐ v89: ONLY after splash is gone — sticky popup on the new route.
+    // Multiple staggered tries so a slow first frame still gets it.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _presentUpdateSticky();
-        if (_updateUrl == null) {
-          final ctx = rootNavKeyForUpdate;
-          if (ctx != null) promptAutostartOnce(ctx);
-        }
-      });
-    });
-    Future.delayed(const Duration(milliseconds: 600), _presentUpdateSticky);
-    Future.delayed(const Duration(milliseconds: 1500), _presentUpdateSticky);
-    Future.delayed(const Duration(milliseconds: 3000), _presentUpdateSticky);
-  }
-
-  /// ⭐ v88: sticky update — retries until the root navigator is ready.
-  /// Uses [_PendingUpdate] so SplashScreen dispose cannot drop the URL.
-  /// "Later" only closes this session; next cold start shows it again.
-  void _presentUpdateSticky({int attempt = 0}) {
-    final url = _PendingUpdate.url ?? _updateUrl;
-    final ver = _PendingUpdate.ver != 0 ? _PendingUpdate.ver : _updateVer;
-    if (url == null || url.isEmpty) return;
-    if (_PendingUpdate.shown || _updateDialogShown) return;
-    final ctx = rootNavKeyForUpdate;
-    if (ctx == null) {
-      if (attempt < 40) {
-        Future.delayed(const Duration(milliseconds: 250),
-            () => _presentUpdateSticky(attempt: attempt + 1));
+      PendingUpdate.present();
+      if (!PendingUpdate.hasUpdate) {
+        final ctx = rootNavKeyForUpdate;
+        if (ctx != null) promptAutostartOnce(ctx);
       }
-      return;
-    }
-    // Mark shown ONLY right before showDialog so a failed attempt retries.
-    _PendingUpdate.shown = true;
-    _updateDialogShown = true;
-    showDialog(
-      context: ctx,
-      barrierDismissible: false,
-      useRootNavigator: true,
-      builder: (_) => PopScope(
-        // ⭐ back button cannot dismiss — only Later / successful install.
-        canPop: false,
-        child: _UpdateDialog(
-          version: ver,
-          url: url,
-          onLater: () {
-            // Session dismiss only. Next cold start re-shows
-            // because _PendingUpdate is reset on every process start.
-            // Do NOT write skip_update_ver.
-          },
-        ),
-      ),
-    );
+    });
+    Future.delayed(const Duration(milliseconds: 400), PendingUpdate.present);
+    Future.delayed(const Duration(milliseconds: 1000), PendingUpdate.present);
+    Future.delayed(const Duration(milliseconds: 2000), PendingUpdate.present);
+    Future.delayed(const Duration(milliseconds: 4000), PendingUpdate.present);
   }
 
   @override
@@ -257,7 +288,8 @@ class _SplashScreenState extends State<SplashScreen>
   }
 }
 
-/// ⭐ v85: in-app update sheet — live progress, then auto-install.
+/// ⭐ v85/v89: in-app update sheet — live progress, then auto-install.
+/// Stays until Later OR successful install. Back button blocked.
 class _UpdateDialog extends StatefulWidget {
   final int version;
   final String url;
@@ -271,7 +303,7 @@ class _UpdateDialog extends StatefulWidget {
 
 class _UpdateDialogState extends State<_UpdateDialog> {
   bool _busy = false;
-  double _progress = 0; // 0..1, <0 = indeterminate / unknown
+  double _progress = 0;
   String _status = '';
   String? _error;
 
@@ -299,12 +331,10 @@ class _UpdateDialogState extends State<_UpdateDialog> {
         _progress = 1;
         _status = 'Opening installer…';
       });
-      // Native side already fires the installer; keep the sheet a beat.
       await Future.delayed(const Duration(milliseconds: 600));
       if (mounted) Navigator.of(context).pop();
       return;
     }
-    // Fallback: open the URL externally (still better than nothing).
     setState(() {
       _busy = false;
       _error = 'Direct download failed — opening in browser.';
