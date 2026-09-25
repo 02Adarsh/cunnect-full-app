@@ -21,7 +21,7 @@ BuildContext? get rootNavKeyForUpdate => rootNavKey.currentContext;
 
 /// ⭐ Internal app version — bump it when building a new APK +
 /// also put the same number + APK link in backend deploy/app_version.json.
-const int kAppVersion = 91;
+const int kAppVersion = 92;
 
 /// ⭐ Animated CUnnect splash on every app open — then route by session.
 /// ⭐ v91: OLD update behaviour restored (simple + reliable) —
@@ -38,7 +38,6 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   String? _updateUrl;
-  int _updateVer = 0;
   bool _prefetched = false;
   bool _routed = false;
   late final AnimationController _ctrl;
@@ -130,7 +129,6 @@ class _SplashScreenState extends State<SplashScreen>
         // every single time the app is opened until the user updates.
         LocalStore.remove('skip_update_ver');
         _updateUrl = url;
-        _updateVer = ver;
         return true;
       }
     } catch (_) {}
@@ -176,9 +174,10 @@ class _SplashScreenState extends State<SplashScreen>
     }
   }
 
-  /// ⭐ Update dialog — the OLD simple one. "Later" just closes it;
-  /// reopening the app shows it again. UPDATE downloads the APK
-  /// in-app (DownloadManager) and falls back to the browser.
+  /// ⭐ Update dialog — the OLD simple one. ⭐ v92: no title line (the user
+  /// does not want the "Update to vNN" line) — just the message below it.
+  /// "Later" just closes it; reopening the app shows it again. UPDATE
+  /// downloads the APK in-app and falls back to the browser.
   void _showUpdateDialog() {
     final ctx = rootNavKeyForUpdate;
     if (ctx == null || _updateUrl == null) return;
@@ -188,11 +187,6 @@ class _SplashScreenState extends State<SplashScreen>
         backgroundColor: const Color(0xFF101010),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16)),
-        title: _updateVer > 0
-            ? Text('Update to v$_updateVer available 🎉',
-                style: const TextStyle(color: Colors.white, fontSize: 16))
-            : const Text('Update available 🎉',
-                style: const TextStyle(color: Colors.white, fontSize: 16)),
         content: const Text(
             'A new version of CUnnect is available. '
             'Update now for the best experience.',

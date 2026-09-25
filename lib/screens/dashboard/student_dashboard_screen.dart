@@ -544,13 +544,13 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
 
   Widget _profileLink(IconData icon, String label, VoidCallback onTap,
       {bool logout = false, bool locked = false}) {
-    // ⭐ v91: profile section red RESTORED (phle jaisa) — icons + text red.
+    // ⭐ v92: profile section red = the CUnnect LOGO red (AppColors.redLogo).
     // Locked rows stay grey (admin lock feature untouched). Logout keeps
     // its old soft-red text like before.
-    final iconColor = locked ? const Color(0xFF666666) : Colors.red;
+    final iconColor = locked ? const Color(0xFF666666) : AppColors.redLogo;
     final textColor = locked
         ? const Color(0xFF666666)
-        : (logout ? const Color(0xFFFF9CA5) : Colors.red);
+        : (logout ? const Color(0xFFFF9CA5) : AppColors.redLogo);
     return GestureDetector(
       onTap: locked ? () {} : onTap,
       child: Container(

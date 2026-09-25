@@ -346,20 +346,15 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
     return full;
   }
 
-  Future<void> _open(String url) async {
+  Future<void> _open(String url, {String title = 'Lecture Plan'}) async {
     final full = _abs(url);
-    // ⭐ v59: UMS documents (lecture plans, datesheets, portal PDFs)
-    // open INSIDE the app now — no browser redirect.
-    final lower = Uri.parse(full).path.toLowerCase();
-    if (full.contains('/api/ums/pdf/') || lower.endsWith('.pdf')) {
-      if (!mounted) return;
-      Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => PdfViewerScreen(
-              url: full, title: 'Lecture Plan')));
-      return;
-    }
-    final message = await openExternalUrl(full);
-    if (mounted && message != null) showCunnectToast(context, message);
+    // ⭐ v92: EVERY document (lecture plans, datesheets, notice
+    // attachments, portal files) opens INSIDE the app now — the viewer
+    // auto-detects PDFs and images by content. Only file types it cannot
+    // render show the in-viewer "open externally" button.
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => PdfViewerScreen(url: full, title: title)));
   }
 
   Widget _bar(double pct, {bool low = false}) => ClipRRect(
@@ -2272,7 +2267,10 @@ class _UmsDashboardScreenState extends State<UmsDashboardScreen> {
               children: [
                 for (final f in files)
                   GestureDetector(
-                    onTap: () => _open(_s(f['url'])),
+                    onTap: () => _open(_s(f['url']),
+                        title: _s(f['name']).isEmpty
+                            ? 'Attachment'
+                            : _s(f['name'])),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 6),
@@ -4397,7 +4395,7 @@ class _PredictSheetState extends State<_PredictSheet> {
               Expanded(
                 child: Center(
                   child:
-                      _mono(h, 7.5, color: _muted, w: FontWeight.w800),
+                      _mono(h, 7, color: _muted, w: FontWeight.w800),
                 ),
               ),
           ],
@@ -4413,6 +4411,11 @@ class _PredictSheetState extends State<_PredictSheet> {
   Widget _calCell(int i, List<Map<String, dynamic>> dl) {
     final on = _days.round() >= i + 1;
     final n = (dl[i]['codes'] as List).length;
+    final d = DateTime.now().add(Duration(days: i));
+    const mons = [
+      'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+      'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'
+    ];
     return Expanded(
       child: GestureDetector(
         onTap: () => setState(() =>
@@ -4428,11 +4431,17 @@ class _PredictSheetState extends State<_PredictSheet> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _mono('${dl[i]['date']}', 12,
+              _mono('${dl[i]['date']}', 11.5,
                   color: on ? _red : Colors.white, w: FontWeight.w800),
-              const SizedBox(height: 2),
-              _mono(n > 0 ? '$n' : '·', 7.5,
+              const SizedBox(height: 1),
+              // ⭐ v92: month short with the date.
+              _mono(mons[d.month - 1], 6.5,
                   color: on ? _red : _muted, w: FontWeight.w800),
+              const SizedBox(height: 2),
+              // ⭐ v92: count shows only once the day is OPENED by the
+              // slider/tap — days open one by one as you predict.
+              _mono(on ? '$n' : '', 8.5,
+                  color: _red, w: FontWeight.w800),
             ],
           ),
         ),
