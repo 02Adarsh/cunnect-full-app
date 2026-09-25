@@ -94,14 +94,23 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
     ];
     final autos = store.myAutoCalls;
     final foodOnly = widget.mode == 'food';
-    final showFood = foodOnly || _filter == 'all' || _filter == 'food';
-    final showPrint = !foodOnly && (_filter == 'all' || _filter == 'print');
-    final showHostel = !foodOnly && (_filter == 'all' || _filter == 'hostel');
-    final showRide = !foodOnly && (_filter == 'all' || _filter == 'ride');
-    final allEmpty = (!showFood || orders.isEmpty) &&
-        (!showPrint || prints.isEmpty) &&
-        (!showHostel || hostels.isEmpty) &&
-        (!showRide || (rides.isEmpty && autos.isEmpty));
+    // ⭐ v93: ALL tab = ONE merged list (every order together, newest
+    // first, no section chips). The single tabs keep their own lists.
+    final merged = !foodOnly && _filter == 'all';
+    final showFood = foodOnly || _filter == 'food';
+    final showPrint = !foodOnly && _filter == 'print';
+    final showHostel = !foodOnly && _filter == 'hostel';
+    final showRide = !foodOnly && _filter == 'ride';
+    final allEmpty = merged
+        ? (orders.isEmpty &&
+            prints.isEmpty &&
+            hostels.isEmpty &&
+            rides.isEmpty &&
+            autos.isEmpty)
+        : ((!showFood || orders.isEmpty) &&
+            (!showPrint || prints.isEmpty) &&
+            (!showHostel || hostels.isEmpty) &&
+            (!showRide || (rides.isEmpty && autos.isEmpty)));
 
     return Scaffold(
       backgroundColor: AppColors.page,
@@ -224,6 +233,13 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
                     : ListView(
                     padding: const EdgeInsets.fromLTRB(14, 9, 14, 20),
                     children: [
+                      // ⭐ v93: ALL — one merged list, newest order first
+                      // (food / print / hostel / ride / auto mixed).
+                      if (merged) ...[
+                        ..._mergedAllList(
+                            orders, prints, hostels, rides, autos),
+                        const SizedBox(height: 8),
+                      ],
                       // ---------------- FOOD ----------------
                       if (showFood) ...[
                         _sectionHead('🍔', 'FOOD ORDERS', orders.length),
@@ -276,6 +292,86 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> {
     ),
         ]),
       ),);
+  }
+
+  /// ⭐ v93: ALL tab — every order type in ONE list, NEWEST first.
+  /// No section chips — whichever order is latest (food, print, hostel,
+  /// ride, auto) sits on top.
+  List<Widget> _mergedAllList(
+      List<Order> orders,
+      List<PrintOrder> prints,
+      List<Map<String, dynamic>> hostels,
+      List<dynamic> rides,
+      List<Map<String, dynamic>> autos) {
+    final items = <Map<String, dynamic>>[];
+    for (final o in orders) {
+      items.add({'at': o.createdAt, 'kind': 'food', 'data': o});
+    }
+    for (final p in prints) {
+      items.add({'at': p.createdAt, 'kind': 'print', 'data': p});
+    }
+    for (final h in hostels) {
+      items.add(
+          {'at': _hostelDate(h['created_at']), 'kind': 'hostel', 'data': h});
+    }
+    for (final r in rides) {
+      items.add({
+        'at': DateTime.tryParse('${r['created_at'] ?? ''}') ??
+            DateTime(2000),
+        'kind': 'ride',
+        'data': r,
+      });
+    }
+    for (final a in autos) {
+      items.add({'at': DateTime(2000), 'kind': 'auto', 'data': a});
+    }
+    items.sort((a, b) => (b['at'] as DateTime).compareTo(a['at'] as DateTime));
+    return [for (final it in items) _mergedCard(it)];
+  }
+
+  /// Hostel date comes as "25 Sep, 04:30 PM" (no year — assume this year).
+  DateTime _hostelDate(dynamic raw) {
+    try {
+      final s = '$raw'.trim();
+      const mons = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ];
+      final m = RegExp(r'^(\d{1,2}) ([A-Za-z]{3}), (\d{1,2}):(\d{2}) (AM|PM)$')
+          .firstMatch(s);
+      if (m != null) {
+        var h = int.parse(m.group(3)!);
+        final pm = m.group(5) == 'PM';
+        if (pm && h != 12) h += 12;
+        if (!pm && h == 12) h = 0;
+        final mo = mons.indexOf(m.group(2)!) + 1;
+        if (mo > 0) {
+          return DateTime(DateTime.now().year, mo, int.parse(m.group(1)!),
+              h, int.parse(m.group(4)!));
+        }
+      }
+    } catch (_) {}
+    return DateTime(2000);
+  }
+
+  Widget _mergedCard(Map<String, dynamic> it) {
+    switch (it['kind'] as String) {
+      case 'food':
+        return _OrderCard(order: it['data'] as Order);
+      case 'print':
+        return _PrintCard(order: it['data'] as PrintOrder);
+      case 'hostel':
+        return _HostelCard(order: it['data'] as Map<String, dynamic>);
+      case 'ride':
+        return _RideRow(
+            ride: Map<String, dynamic>.from(
+                (it['data'] as Map).cast<String, dynamic>()));
+      case 'auto':
+        return _AutoRow(
+            call: Map<String, dynamic>.from(
+                (it['data'] as Map).cast<String, dynamic>()));
+    }
+    return const SizedBox.shrink();
   }
 
   Widget _sectionHead(String icon, String title, int count) => Padding(

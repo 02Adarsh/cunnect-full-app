@@ -21,7 +21,7 @@ BuildContext? get rootNavKeyForUpdate => rootNavKey.currentContext;
 
 /// ⭐ Internal app version — bump it when building a new APK +
 /// also put the same number + APK link in backend deploy/app_version.json.
-const int kAppVersion = 92;
+const int kAppVersion = 93;
 
 /// ⭐ Animated CUnnect splash on every app open — then route by session.
 /// ⭐ v91: OLD update behaviour restored (simple + reliable) —
@@ -174,55 +174,16 @@ class _SplashScreenState extends State<SplashScreen>
     }
   }
 
-  /// ⭐ Update dialog — the OLD simple one. ⭐ v92: no title line (the user
-  /// does not want the "Update to vNN" line) — just the message below it.
-  /// "Later" just closes it; reopening the app shows it again. UPDATE
-  /// downloads the APK in-app and falls back to the browser.
+  /// ⭐ Update dialog — old-style behaviour (shows on EVERY app open,
+  /// "Later" only closes it). ⭐ v93: title is just "Update available 🎉"
+  /// (no version number) and the download % now runs INSIDE the popup.
   void _showUpdateDialog() {
     final ctx = rootNavKeyForUpdate;
     if (ctx == null || _updateUrl == null) return;
     showDialog(
       context: ctx,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF101010),
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16)),
-        content: const Text(
-            'A new version of CUnnect is available. '
-            'Update now for the best experience.',
-            style: TextStyle(color: Color(0xFFB5B5B5), fontSize: 12.5)),
-        actions: [
-          TextButton(
-            onPressed: () {
-              // ⭐ "Later" only closes the dialog — it will be
-              // shown again the next time the app is opened.
-              Navigator.of(ctx).pop();
-            },
-            child: const Text('Later',
-                style: TextStyle(color: Color(0xFF9A9A9A))),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFF10B1D)),
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              final ok = await downloadApk(_updateUrl!);
-              if (!ok) await openExternalUrl(_updateUrl!);
-              final c = rootNavKeyForUpdate;
-              if (c != null) {
-                showCunnectToast(
-                    c,
-                    ok
-                        ? 'Download started — install from the notification'
-                        : 'Opening download in browser');
-              }
-            },
-            child: const Text('UPDATE',
-                style: TextStyle(
-                    fontWeight: FontWeight.w800, color: Colors.white)),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (_) => _UpdateDialog(url: _updateUrl!),
     );
   }
 
@@ -268,6 +229,113 @@ class _SplashScreenState extends State<SplashScreen>
           ),
         ),
       ),
+    );
+  }
+}
+
+/// ⭐ v93: update dialog — old-style behaviour (popup on every app open,
+/// "Later" only closes it; it returns on the next open) with the live
+/// download progress INSIDE the popup: red progress bar + % + status
+/// while the APK downloads, then the installer opens automatically.
+class _UpdateDialog extends StatefulWidget {
+  final String url;
+  const _UpdateDialog({required this.url});
+
+  @override
+  State<_UpdateDialog> createState() => _UpdateDialogState();
+}
+
+class _UpdateDialogState extends State<_UpdateDialog> {
+  bool _busy = false;
+  double _progress = 0;
+  String _status = '';
+
+  Future<void> _start() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _progress = -1;
+      _status = 'Starting download…';
+    });
+    final ok = await downloadApk(
+      widget.url,
+      onProgress: (p, status) {
+        if (!mounted) return;
+        setState(() {
+          _progress = p;
+          if (status.isNotEmpty) _status = status;
+        });
+      },
+    );
+    if (!mounted) return;
+    if (ok) {
+      setState(() {
+        _progress = 1;
+        _status = 'Opening installer…';
+      });
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+    // Direct download failed — open in the browser instead.
+    await openExternalUrl(widget.url);
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF101010),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('Update available 🎉',
+          style: TextStyle(color: Colors.white, fontSize: 16)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+              'A new version of CUnnect is available. '
+              'Update now for the best experience.',
+              style: TextStyle(color: Color(0xFFB5B5B5), fontSize: 12.5)),
+          if (_busy) ...[
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: _progress < 0 ? null : _progress.clamp(0.0, 1.0),
+                minHeight: 7,
+                backgroundColor: const Color(0xFF2A2A2A),
+                color: const Color(0xFFF10B1D),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _progress >= 0
+                  ? '${(_progress * 100).floor()}%  ·  $_status'
+                  : _status,
+              style: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 11),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        if (!_busy)
+          TextButton(
+            // ⭐ "Later" only closes the dialog — it will be shown
+            // again the next time the app is opened.
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Later',
+                style: TextStyle(color: Color(0xFF9A9A9A))),
+          ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFF10B1D)),
+          onPressed: _busy ? null : _start,
+          child: Text(_busy ? 'DOWNLOADING' : 'UPDATE',
+              style: const TextStyle(
+                  fontWeight: FontWeight.w800, color: Colors.white)),
+        ),
+      ],
     );
   }
 }
