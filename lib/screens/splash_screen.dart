@@ -19,21 +19,24 @@ import 'vendor/vendor_shell.dart';
 
 BuildContext? get rootNavKeyForUpdate => rootNavKey.currentContext;
 
-/// ⭐ Internal app version — bump it when building a new APK +
-/// also put the same number + APK link in backend deploy/app_version.json.
-const int kAppVersion = 89;
+/// ⭐ Internal app version — bump when shipping a new APK +
+/// put the same number + APK link in backend deploy/app_version.json.
+const int kAppVersion = 90;
 
-/// ⭐ v89: pending update lives OUTSIDE SplashScreen so dispose / route
-/// change can never drop it. "Later" only closes this session — the next
-/// process start resets [shown] and the popup returns (old behaviour).
+/// ⭐ v90: sticky in-app update via ROOT OverlayEntry.
+///
+/// Why Overlay (not showDialog on a route):
+///   showDialog is tied to a route. Splash → pushReplacement destroyed the
+///   dialog (flash then vanish). An OverlayEntry on rootNavKey.overlay
+///   survives every route change until we remove it.
+///
+/// Later = this session only (static flag). Next process start → popup again.
+/// Never writes skip_update_ver.
 class PendingUpdate {
   static String? url;
   static int ver = 0;
-  /// True only while a dialog is currently on screen this session.
-  static bool showing = false;
-  /// True after user tapped Later this session (suppress re-show until
-  /// next cold start — process kill resets this static).
   static bool dismissedThisSession = false;
+  static OverlayEntry? _entry;
 
   static void set(String u, int v) {
     url = u;
@@ -43,70 +46,69 @@ class PendingUpdate {
   static bool get hasUpdate =>
       url != null && url!.isNotEmpty && ver > kAppVersion;
 
-  /// Show the sticky update sheet on the ROOT navigator.
-  /// Safe to call many times — only one sheet; never on a dying route.
+  static bool get isShowing => _entry != null;
+
+  /// Insert (or keep) the sticky sheet on the root overlay.
   static void present({int attempt = 0}) {
     if (!hasUpdate) return;
     if (dismissedThisSession) return;
-    if (showing) return;
-    final ctx = rootNavKey.currentContext;
-    if (ctx == null) {
-      if (attempt < 50) {
+    if (_entry != null) return; // already on screen
+
+    final overlay = rootNavKey.currentState?.overlay;
+    if (overlay == null) {
+      if (attempt < 60) {
         Future.delayed(const Duration(milliseconds: 200),
             () => present(attempt: attempt + 1));
       }
       return;
     }
-    // ⭐ Never show while SplashScreen is still the top route — that is
-    // what made the popup flash and vanish on pushReplacement.
-    final nav = rootNavKey.currentState;
-    if (nav == null) {
-      if (attempt < 50) {
-        Future.delayed(const Duration(milliseconds: 200),
-            () => present(attempt: attempt + 1));
-      }
-      return;
-    }
-    // If the top page is still the splash (it has no settings name), wait
-    // until at least one post-splash frame has settled.
-    showing = true;
-    try {
-      showDialog<void>(
-        context: ctx,
-        barrierDismissible: false,
-        useRootNavigator: true,
-        builder: (dialogCtx) {
-          return PopScope(
-            canPop: false,
+
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      opaque: false,
+      maintainState: true,
+      builder: (ctx) {
+        return Material(
+          color: Colors.black54,
+          child: Center(
             child: _UpdateDialog(
               version: ver,
               url: url!,
               onLater: () {
-                // Session-only dismiss. Next cold start → popup again.
                 dismissedThisSession = true;
-                showing = false;
-                // Do NOT write skip_update_ver — old sticky behaviour.
+                _remove();
+              },
+              onInstalled: () {
+                // User got the installer — drop the sheet.
+                dismissedThisSession = true;
+                _remove();
               },
             ),
-          );
-        },
-      ).then((_) {
-        // Dialog closed (Later or install). Keep dismissedThisSession if Later.
-        showing = false;
-      }).catchError((_) {
-        showing = false;
-      });
+          ),
+        );
+      },
+    );
+    _entry = entry;
+    try {
+      overlay.insert(entry);
     } catch (_) {
-      showing = false;
-      if (attempt < 50) {
+      _entry = null;
+      if (attempt < 60) {
         Future.delayed(const Duration(milliseconds: 300),
             () => present(attempt: attempt + 1));
       }
     }
   }
+
+  static void _remove() {
+    try {
+      _entry?.remove();
+    } catch (_) {}
+    _entry = null;
+  }
 }
 
-/// ⭐ Animated CUnnect splash on every app open — then route by session.
+/// ⭐ Animated CUnnect splash — then route by session.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -134,21 +136,20 @@ class _SplashScreenState extends State<SplashScreen>
         parent: _ctrl,
         curve: const Interval(0.45, 0.85, curve: Curves.easeOut));
     _prefetchMedia();
-    // ⭐ v89: kick update probe + lock refresh in parallel with splash.
-    // NEVER show the update dialog on this route.
+    // ⭐ NEVER show update on splash. Only probe + warm locks.
     _checkUpdate();
     _warmLocksBeforeRoute();
     _ctrl.forward().then((_) => _route());
   }
 
-  /// ⭐ v89: while splash plays, refresh lock flags so the dashboard
-  /// paints with the REAL admin lock state (not a stale unlocked cache).
+  /// Always refresh locks while splash plays so dashboard opens locked.
   Future<void> _warmLocksBeforeRoute() async {
     try {
       final store = context.read<AppStore>();
       if (store.studentLoggedIn) {
+        // ⭐ v90: ALWAYS await — even if cache has old unlocked state.
         await store.loadStoreSections()
-            .timeout(const Duration(seconds: 4), onTimeout: () {});
+            .timeout(const Duration(seconds: 5), onTimeout: () {});
       }
     } catch (_) {}
   }
@@ -170,14 +171,14 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _checkUpdate() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
-    // Only store the URL here — present() is called AFTER we leave splash.
     final found = await _fetchUpdate(const Duration(seconds: 2));
     if (!found) {
       Future.delayed(const Duration(seconds: 3), () async {
-        await _fetchUpdate(const Duration(seconds: 5));
-        // If we already left splash, try present now.
+        await _fetchUpdate(const Duration(seconds: 6));
         if (_routed) PendingUpdate.present();
       });
+    } else if (_routed) {
+      PendingUpdate.present();
     }
   }
 
@@ -209,11 +210,11 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted || _routed) return;
     _routed = true;
     final store = context.read<AppStore>();
-    // One last short try to have fresh locks before paint.
-    if (store.studentLoggedIn && store.builtinSections.isEmpty) {
+    // ⭐ v90: always one more await so locks are live before hub paints.
+    if (store.studentLoggedIn) {
       try {
         await store.loadStoreSections()
-            .timeout(const Duration(seconds: 2), onTimeout: () {});
+            .timeout(const Duration(seconds: 3), onTimeout: () {});
       } catch (_) {}
     }
     if (!mounted) return;
@@ -227,19 +228,21 @@ class _SplashScreenState extends State<SplashScreen>
     }
     Navigator.of(context)
         .pushReplacement(MaterialPageRoute(builder: (_) => next));
-    // ⭐ v89: ONLY after splash is gone — sticky popup on the new route.
-    // Multiple staggered tries so a slow first frame still gets it.
+
+    // Sticky overlay AFTER splash is gone — staggered so slow frames still hit.
+    void show() => PendingUpdate.present();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      PendingUpdate.present();
+      show();
       if (!PendingUpdate.hasUpdate) {
         final ctx = rootNavKeyForUpdate;
         if (ctx != null) promptAutostartOnce(ctx);
       }
     });
-    Future.delayed(const Duration(milliseconds: 400), PendingUpdate.present);
-    Future.delayed(const Duration(milliseconds: 1000), PendingUpdate.present);
-    Future.delayed(const Duration(milliseconds: 2000), PendingUpdate.present);
-    Future.delayed(const Duration(milliseconds: 4000), PendingUpdate.present);
+    Future.delayed(const Duration(milliseconds: 300), show);
+    Future.delayed(const Duration(milliseconds: 800), show);
+    Future.delayed(const Duration(milliseconds: 1600), show);
+    Future.delayed(const Duration(milliseconds: 3000), show);
+    Future.delayed(const Duration(milliseconds: 5000), show);
   }
 
   @override
@@ -288,14 +291,18 @@ class _SplashScreenState extends State<SplashScreen>
   }
 }
 
-/// ⭐ v85/v89: in-app update sheet — live progress, then auto-install.
-/// Stays until Later OR successful install. Back button blocked.
+/// Sticky update card (used inside the root OverlayEntry).
 class _UpdateDialog extends StatefulWidget {
   final int version;
   final String url;
   final VoidCallback? onLater;
-  const _UpdateDialog(
-      {required this.version, required this.url, this.onLater});
+  final VoidCallback? onInstalled;
+  const _UpdateDialog({
+    required this.version,
+    required this.url,
+    this.onLater,
+    this.onInstalled,
+  });
 
   @override
   State<_UpdateDialog> createState() => _UpdateDialogState();
@@ -332,7 +339,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
         _status = 'Opening installer…';
       });
       await Future.delayed(const Duration(milliseconds: 600));
-      if (mounted) Navigator.of(context).pop();
+      widget.onInstalled?.call();
       return;
     }
     setState(() {
@@ -345,67 +352,87 @@ class _UpdateDialogState extends State<_UpdateDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: const Color(0xFF101010),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Text(
-          widget.version > 0
-              ? 'Update to v${widget.version}'
-              : 'Update available',
-          style: const TextStyle(color: Colors.white, fontSize: 16)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
+    // Card-style sheet (not AlertDialog) so it is not route-owned.
+    return PopScope(
+      canPop: false,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 28),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF101010),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF2A2A2A)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.version > 0
+                  ? 'Update to v${widget.version}'
+                  : 'Update available',
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+            const Text(
               'A new version of CUnnect is ready. '
               'Tap UPDATE — it installs inside the app, no browser.',
-              style: TextStyle(color: Color(0xFFB5B5B5), fontSize: 12.5)),
-          if (_busy) ...[
-            const SizedBox(height: 16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: LinearProgressIndicator(
-                value: _progress < 0 ? null : _progress.clamp(0.0, 1.0),
-                minHeight: 7,
-                backgroundColor: const Color(0xFF2A2A2A),
-                color: const Color(0xFFF10B1D),
+              style: TextStyle(color: Color(0xFFB5B5B5), fontSize: 12.5),
+            ),
+            if (_busy) ...[
+              const SizedBox(height: 16),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: _progress < 0 ? null : _progress.clamp(0.0, 1.0),
+                  minHeight: 7,
+                  backgroundColor: const Color(0xFF2A2A2A),
+                  color: const Color(0xFFF10B1D),
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _progress >= 0
-                  ? '${(_progress * 100).floor()}%  ·  $_status'
-                  : _status,
-              style: const TextStyle(color: Color(0xFF9A9A9A), fontSize: 11),
+              const SizedBox(height: 8),
+              Text(
+                _progress >= 0
+                    ? '${(_progress * 100).floor()}%  ·  $_status'
+                    : _status,
+                style:
+                    const TextStyle(color: Color(0xFF9A9A9A), fontSize: 11),
+              ),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              Text(_error!,
+                  style: const TextStyle(
+                      color: Color(0xFFFFABB2), fontSize: 11)),
+            ],
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (!_busy)
+                  TextButton(
+                    onPressed: () => widget.onLater?.call(),
+                    child: const Text('Later',
+                        style: TextStyle(color: Color(0xFF9A9A9A))),
+                  ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFF10B1D)),
+                  onPressed: _busy ? null : _start,
+                  child: Text(_busy ? 'DOWNLOADING' : 'UPDATE',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white)),
+                ),
+              ],
             ),
           ],
-          if (_error != null) ...[
-            const SizedBox(height: 10),
-            Text(_error!,
-                style: const TextStyle(color: Color(0xFFFFABB2), fontSize: 11)),
-          ],
-        ],
-      ),
-      actions: [
-        if (!_busy)
-          TextButton(
-            onPressed: () {
-              widget.onLater?.call();
-              Navigator.of(context).pop();
-            },
-            child: const Text('Later',
-                style: TextStyle(color: Color(0xFF9A9A9A))),
-          ),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFF10B1D)),
-          onPressed: _busy ? null : _start,
-          child: Text(_busy ? 'DOWNLOADING' : 'UPDATE',
-              style: const TextStyle(
-                  fontWeight: FontWeight.w800, color: Colors.white)),
         ),
-      ],
+      ),
     );
   }
 }

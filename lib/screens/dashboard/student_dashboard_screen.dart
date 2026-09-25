@@ -38,6 +38,7 @@ class StudentDashboardScreen extends StatefulWidget {
 class _StudentDashboardScreenState extends State<StudentDashboardScreen>
     with WidgetsBindingObserver {
   final _pageController = PageController();
+  bool _locksReady = false; // ⭐ v90
   int _currentBanner = 0;
   Timer? _notifTimer;
 
@@ -47,23 +48,27 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
     // ⭐ v75: back on the student side — rider / vendor pushes must not
     // raise their popups or ring here.
     ActivePortal.set(AppPortal.student);
+    // ⭐ v90: if cache already has lock flags, hub is interactive immediately.
+    final cached = context.read<AppStore>().builtinSections;
+    if (cached.isNotEmpty) {
+      _locksReady = true;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final store = context.read<AppStore>();
-      // ⭐ v89: AWAIT sections first so locks paint before the user can
-      // tap Food. Cache already hydrated in AppStore ctor; this refresh
-      // overwrites with the live admin lock state ASAP.
+      // ⭐ v90: AWAIT live sections so admin lock is applied before taps.
       try {
         await store.loadStoreSections();
       } catch (_) {}
       if (!mounted) return;
+      setState(() => _locksReady = true);
       store
         ..loadDashboardBanners()
         ..loadNotifications()
-        ..preloadAllMyOrders() // ⭐ v87: warm print/hostel/ride/auto for ALL
+        ..preloadAllMyOrders()
         ..umsAutoScrape();
-      // ⭐ v89: sticky update also from dashboard (in case splash missed).
+      // Sticky update overlay (survives every route).
       PendingUpdate.present();
-      // ⭐ v73: a tapped broadcast opens right here on the home page.
+      Future.delayed(const Duration(milliseconds: 800), PendingUpdate.present);
       if (mounted) BroadcastCard.showIfPending(context);
     });
     WidgetsBinding.instance.addObserver(this);
@@ -299,8 +304,22 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
               // only swaps the glyph for a lock and HIDES the label.
               // Tap on a locked tile does nothing (no toast, no open).
               final builtin = context.watch<AppStore>().builtinSections;
-              bool lockedOf(String key) =>
-                  (builtin[key]?['is_locked'] ?? false) as bool;
+              // ⭐ v90: until first sections load finishes, treat lockable
+              // tiles as locked if cache says so; if no cache yet, block
+              // Food/Store/Feed/Ride taps so user cannot race the network.
+              bool lockedOf(String key) {
+                final raw = (builtin[key]?['is_locked'] ?? false) as bool;
+                if (raw) return true;
+                if (!_locksReady &&
+                    (key == 'food' ||
+                        key == 'store' ||
+                        key == 'feed' ||
+                        key == 'ride')) {
+                  // No cache yet and network still in flight — hold the tap.
+                  if (builtin.isEmpty) return true;
+                }
+                return false;
+              }
               bool activeOf(String key) =>
                   (builtin[key]?['is_active'] ?? true) as bool;
               final items = <({
