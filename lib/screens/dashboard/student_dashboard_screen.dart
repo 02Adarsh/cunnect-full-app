@@ -15,7 +15,6 @@ import '../auth/student_login_screen.dart';
 import '../customer/food_home_screen.dart';
 import '../notices/notice_board_screen.dart';
 import '../customer/my_orders_screen.dart';
-import '../splash_screen.dart' show PendingUpdate;
 import '../store/store_home_screen.dart';
 import '../ums/ums_login_screen.dart';
 import '../ums/ums_dashboard_screen.dart';
@@ -38,7 +37,6 @@ class StudentDashboardScreen extends StatefulWidget {
 class _StudentDashboardScreenState extends State<StudentDashboardScreen>
     with WidgetsBindingObserver {
   final _pageController = PageController();
-  bool _locksReady = false; // ⭐ v90
   int _currentBanner = 0;
   Timer? _notifTimer;
 
@@ -48,27 +46,21 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
     // ⭐ v75: back on the student side — rider / vendor pushes must not
     // raise their popups or ring here.
     ActivePortal.set(AppPortal.student);
-    // ⭐ v90: if cache already has lock flags, hub is interactive immediately.
-    final cached = context.read<AppStore>().builtinSections;
-    if (cached.isNotEmpty) {
-      _locksReady = true;
-    }
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final store = context.read<AppStore>();
-      // ⭐ v90: AWAIT live sections so admin lock is applied before taps.
+      // ⭐ v89: AWAIT sections first so locks paint before the user can
+      // tap Food. Cache already hydrated in AppStore ctor; this refresh
+      // overwrites with the live admin lock state ASAP.
       try {
         await store.loadStoreSections();
       } catch (_) {}
       if (!mounted) return;
-      setState(() => _locksReady = true);
       store
         ..loadDashboardBanners()
         ..loadNotifications()
-        ..preloadAllMyOrders()
+        ..preloadAllMyOrders() // ⭐ v87: warm print/hostel/ride/auto for ALL
         ..umsAutoScrape();
-      // Sticky update overlay (survives every route).
-      PendingUpdate.present();
-      Future.delayed(const Duration(milliseconds: 800), PendingUpdate.present);
+      // ⭐ v73: a tapped broadcast opens right here on the home page.
       if (mounted) BroadcastCard.showIfPending(context);
     });
     WidgetsBinding.instance.addObserver(this);
@@ -304,22 +296,8 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
               // only swaps the glyph for a lock and HIDES the label.
               // Tap on a locked tile does nothing (no toast, no open).
               final builtin = context.watch<AppStore>().builtinSections;
-              // ⭐ v90: until first sections load finishes, treat lockable
-              // tiles as locked if cache says so; if no cache yet, block
-              // Food/Store/Feed/Ride taps so user cannot race the network.
-              bool lockedOf(String key) {
-                final raw = (builtin[key]?['is_locked'] ?? false) as bool;
-                if (raw) return true;
-                if (!_locksReady &&
-                    (key == 'food' ||
-                        key == 'store' ||
-                        key == 'feed' ||
-                        key == 'ride')) {
-                  // No cache yet and network still in flight — hold the tap.
-                  if (builtin.isEmpty) return true;
-                }
-                return false;
-              }
+              bool lockedOf(String key) =>
+                  (builtin[key]?['is_locked'] ?? false) as bool;
               bool activeOf(String key) =>
                   (builtin[key]?['is_active'] ?? true) as bool;
               final items = <({
@@ -566,9 +544,13 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
 
   Widget _profileLink(IconData icon, String label, VoidCallback onTap,
       {bool logout = false, bool locked = false}) {
-    final fg = locked
+    // ⭐ v91: profile section red RESTORED (phle jaisa) — icons + text red.
+    // Locked rows stay grey (admin lock feature untouched). Logout keeps
+    // its old soft-red text like before.
+    final iconColor = locked ? const Color(0xFF666666) : Colors.red;
+    final textColor = locked
         ? const Color(0xFF666666)
-        : (logout ? const Color(0xFFFF9CA5) : const Color(0xFFEEEEEE));
+        : (logout ? const Color(0xFFFF9CA5) : Colors.red);
     return GestureDetector(
       onTap: locked ? () {} : onTap,
       child: Container(
@@ -587,12 +569,12 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
         ),
         child: Row(children: [
           Icon(locked ? Icons.lock_rounded : icon,
-              size: 18, color: fg),
+              size: 18, color: iconColor),
           const SizedBox(width: 10),
           // ⭐ v86: locked rows hide the real label (no section name).
           Text(locked ? '' : label,
               style: TextStyle(
-                  color: fg,
+                  color: textColor,
                   fontSize: 13,
                   fontWeight: FontWeight.w700)),
         ]),

@@ -4296,11 +4296,13 @@ class _PredictSheetState extends State<_PredictSheet> {
     final todayIdx = now.weekday % 7;
     final nowMin = now.hour * 60 + now.minute;
     final out = <Map<String, dynamic>>[];
-    // ⭐ v76: a full month of days is built (the sheet shows 7 or 30)
+    // ⭐ v91: a full month of days is built (the sheet shows 7 or 30).
+    // ALL calendar days are kept now — even days with no timetable
+    // classes (they simply add 0 lectures) — so the month view can be
+    // drawn as a real calendar grid.
     for (var i = 0; i < 30; i++) {
       final short = _dowShort[(todayIdx + i) % 7];
-      final slots = slotsByDay[short];
-      if (slots == null) continue; // day not on the timetable
+      final slots = slotsByDay[short] ?? const [];
       final codes = <String>[
         for (final slot in slots)
           if (i > 0 ||
@@ -4365,6 +4367,75 @@ class _PredictSheetState extends State<_PredictSheet> {
         ),
         child: _mono('$label · ${(dl[i]['codes'] as List).length}', 9,
             color: on ? _red : _muted, w: FontWeight.w800),
+      ),
+    );
+  }
+
+  /// ⭐ v91: month view as a real calendar grid — 7 columns (S M T W T F S),
+  /// starting at today's weekday column. Days turn red one by one as the
+  /// prediction slider / taps move forward.
+  Widget _monthCalendar(List<Map<String, dynamic>> dl, int maxDays) {
+    const heads = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    final lead = DateTime.now().weekday % 7;
+    final cells = <Widget>[
+      for (var k = 0; k < lead; k++) const Expanded(child: SizedBox()),
+      for (var i = 0; i < maxDays && i < dl.length; i++) _calCell(i, dl),
+    ];
+    while (cells.length % 7 != 0) {
+      cells.add(const Expanded(child: SizedBox()));
+    }
+    final rows = <Widget>[];
+    for (var r = 0; r < cells.length; r += 7) {
+      rows.add(Row(children: cells.sublist(r, r + 7)));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            for (final h in heads)
+              Expanded(
+                child: Center(
+                  child:
+                      _mono(h, 7.5, color: _muted, w: FontWeight.w800),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        ...rows,
+      ],
+    );
+  }
+
+  /// One calendar day cell — date + that day's lecture count.
+  /// Selected (inside the predicted range) = red.
+  Widget _calCell(int i, List<Map<String, dynamic>> dl) {
+    final on = _days.round() >= i + 1;
+    final n = (dl[i]['codes'] as List).length;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() =>
+            _days = (_days.round() == i + 1) ? 0 : (i + 1).toDouble()),
+        child: Container(
+          margin: const EdgeInsets.all(2.5),
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          decoration: BoxDecoration(
+            color: on ? _reddimBg : const Color(0xFF161616),
+            border: Border.all(color: on ? _red : _hair),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _mono('${dl[i]['date']}', 12,
+                  color: on ? _red : Colors.white, w: FontWeight.w800),
+              const SizedBox(height: 2),
+              _mono(n > 0 ? '$n' : '·', 7.5,
+                  color: on ? _red : _muted, w: FontWeight.w800),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -4490,15 +4561,10 @@ class _PredictSheetState extends State<_PredictSheet> {
                   ),
                 ),
                 const SizedBox(height: 4),
+                // ⭐ v91: month = calendar grid (red fills as you predict),
+                // week = the old chips.
                 _monthly
-                    ? SizedBox(
-                        height: 34,
-                        child: ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: maxDays,
-                          itemBuilder: (_, i) => _dayChip(i, dl),
-                        ),
-                      )
+                    ? _monthCalendar(dl, maxDays)
                     : Wrap(
                         spacing: 6,
                         runSpacing: 6,
@@ -4516,7 +4582,25 @@ class _PredictSheetState extends State<_PredictSheet> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                for (final c in widget.records) _subjTile(c, adds),
+                // ⭐ v91: month = subjects scroll HORIZONTALLY, week = old
+                // vertical list.
+                _monthly
+                    ? SizedBox(
+                        height: 216,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: widget.records.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(width: 10),
+                          itemBuilder: (_, i) =>
+                              _subjCard(widget.records[i], adds),
+                        ),
+                      )
+                    : Column(
+                        children: [
+                          for (final c in widget.records) _subjTile(c, adds),
+                        ],
+                      ),
               ],
             ),
           ),
@@ -4543,9 +4627,16 @@ class _PredictSheetState extends State<_PredictSheet> {
     final pct = tot > 0 ? att / tot * 100 : 0.0;
     final pred = tot + add > 0 ? (att + add) / (tot + add) * 100 : 0.0;
     final shown = add > 0 ? pred : pct;
-    final low = pct < 75;
-    final miss = (c['miss'] is num ? (c['miss'] as num) : 0).round();
-    final need = (c['need'] is num ? (c['need'] as num) : 0).round();
+    // ⭐ v91: the verdict now follows the PREDICTED percentage — once the
+    // slider pushes a subject over 75% it flips to "MISS NEXT n" (how many
+    // you can safely miss), instead of sticking on "ATTEND NEXT n".
+    final low = shown < 75;
+    final need = (tot + add) > 0 && low
+        ? ((0.75 * (tot + add)) - (att + add)).ceil()
+        : (c['need'] is num ? (c['need'] as num) : 0).round();
+    final miss = (tot + add) > 0 && !low
+        ? ((att + add) - (0.75 * (tot + add))).floor()
+        : (c['miss'] is num ? (c['miss'] as num) : 0).round();
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Container(
@@ -4603,7 +4694,7 @@ class _PredictSheetState extends State<_PredictSheet> {
                 child: _mono(
                     low
                         ? '⚠ ATTEND NEXT $need'
-                        : 'CAN MISS $miss',
+                        : 'MISS NEXT $miss',
                     8.5,
                     color: low ? _red : _soft,
                     w: FontWeight.w800),
@@ -4611,6 +4702,76 @@ class _PredictSheetState extends State<_PredictSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// ⭐ v91: compact subject card for the month view — the subject row
+  /// scrolls HORIZONTALLY now. Same numbers as _subjTile.
+  Widget _subjCard(Map<String, dynamic> c, Map<String, int> adds) {
+    final code = (c['code'] ?? '').toString();
+    final att = (c['attended'] is num ? (c['attended'] as num).toDouble() : 0);
+    final tot = (c['total'] is num ? (c['total'] as num).toDouble() : 0);
+    final add = adds[code] ?? 0;
+    final pct = tot > 0 ? att / tot * 100 : 0.0;
+    final pred = tot + add > 0 ? (att + add) / (tot + add) * 100 : 0.0;
+    final shown = add > 0 ? pred : pct;
+    final low = shown < 75;
+    final need = (tot + add) > 0 && low
+        ? ((0.75 * (tot + add)) - (att + add)).ceil()
+        : (c['need'] is num ? (c['need'] as num) : 0).round();
+    final miss = (tot + add) > 0 && !low
+        ? ((att + add) - (0.75 * (tot + add))).floor()
+        : (c['miss'] is num ? (c['miss'] as num) : 0).round();
+    return Container(
+      width: 150,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161616),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _hair),
+      ),
+      child: Column(
+        children: [
+          _Ring(
+              pct: shown,
+              size: 54,
+              stroke: 5,
+              color: shown >= 75 ? Colors.white : _red,
+              label: _pctStr(shown),
+              sub: ''),
+          const SizedBox(height: 9),
+          _mono(code.isEmpty ? 'COURSE' : code, 11, w: FontWeight.w800),
+          const SizedBox(height: 3),
+          SizedBox(
+            width: 126,
+            child: Text(
+              (c['title'] ?? '').toString(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: _muted, fontSize: 9),
+            ),
+          ),
+          const SizedBox(height: 7),
+          _mono(
+              add > 0
+                  ? '${att.round()}/${tot.round()}  +$add'
+                  : '${att.round()}/${tot.round()}',
+              8.5,
+              color: add > 0 ? _green : _muted,
+              w: FontWeight.w800),
+          const SizedBox(height: 9),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: low ? const Color(0x26EC1C24) : const Color(0x14FFFFFF),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: _mono(low ? '⚠ ATTEND NEXT $need' : 'MISS NEXT $miss', 8,
+                color: low ? _red : _soft, w: FontWeight.w800),
+          ),
+        ],
       ),
     );
   }
